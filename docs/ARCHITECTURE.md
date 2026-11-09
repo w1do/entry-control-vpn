@@ -74,7 +74,8 @@ backend/
     main.py            create_app(), middleware (request-id, JSON-логи, security-заголовки),
                        lifespan (engine, bootstrap админа, scheduler), SPA-fallback
     api/               auth, servers, exits, sites, routing, clients, jobs, agent,
-                       subscription, health, deps (сессия/CSRF/agent-token), errors
+                       subscription, health, metrics (Prometheus), events (аудит),
+                       incidents (list/ack/resolve), deps (сессия/CSRF/agent-token), errors
     core/              config (pydantic-settings), db (async engine/session),
                        security (Argon2id, opaque-сессии, CSRF, токены), crypto
                        (Fernet/MultiFernet), logging (JSON + redaction), timeutils
@@ -83,7 +84,8 @@ backend/
     services/          auth, audit, jobs (в БД + SSE), ssh (asyncssh), provisioning
                        (bootstrap узла), runner (раскатка ревизий), reality (x25519,
                        shortId), links (vless:// и клиентские профили), presets,
-                       rate_limit
+                       rate_limit, metrics_agg (свёртка/retention/uptime),
+                       health_monitor (инциденты), scheduler_setup (APScheduler jobs)
     compiler/          детерминированная генерация конфигов Xray (см. §4)
     static/            сюда Dockerfile кладёт собранный frontend/dist
   alembic/             миграции (entrypoint: alembic upgrade head)
@@ -119,6 +121,12 @@ config_poll_s:10, metrics_interval_s:15}`. Токен — per-node Bearer, на 
 только SHA-256. Пути: `bin/xray`, `bin/vpn-agent`, `etc/xray.json`, `etc/agent.json`,
 `log/access.log`, `log/xray-error.log`, `state/*`.
 
+Канал команд: в ответе `POST /agent/v1/heartbeat` панель отдаёт `commands`
+(`reapply`, `restart_services`, `diagnose`, `uninstall`,
+`update_agent`); агент выполняет их и репортит `POST /agent/v1/command-result`,
+а результат диагностики/удаления — соответствующими эндпоинтами. Команда не теряется, пока
+узел offline: она выбирается из очереди при следующем heartbeat.
+
 ### 2.3 Frontend (SPA)
 
 React 19 + Vite + TypeScript + TanStack Router/Query + Tailwind v4 + shadcn/ui + Recharts +
@@ -141,6 +149,9 @@ Xray 26.11.9 на узлах, конфиг генерируется компил
   outbound `freedom`, firewall allowlist по IP entry-узлов.
 - REALITY dest выбирается «живой» TLS 1.3/H2-домен в той же AS/юрисдикции; ключи
   (x25519), shortId и interconnect-UUID генерирует бэкенд, приватные части шифруются Fernet.
+- Внешние выходы (HTTP CONNECT/SOCKS5) хранят креды (username/password) только в
+  `exits.secret_enc` (Fernet); в API/logs не возвращаются. Health-монитор сверяет
+  фактический exit-IP/страну с `expected_exit_ip`, при несовпадении/RU выход → `down`.
 
 ## 3. Потоки данных
 
@@ -175,6 +186,16 @@ access-лога, ошибки из error-лога. Считает дельты �
 не даёт отрицательных значений), буферизует при offline до 24 ч и отправляет
 `POST /agent/v1/metrics` (`replay:true` после восстановления). Панель нормализует время в
 UTC, пишет `metrics_buckets` и сворачивает: 15s → 1m (24 ч) → 5m (30 д) → 1h (365 д).
+
+Фоновые задачи APScheduler (in-process, один воркер):
+`mark_offline` (узел без heartbeat >90 с → `offline` + инцидент),
+`metrics_aggregate` (раз в 60 с: 15s → 1m → 5m → 1h), `metrics_purge`
+(ретенция), `health_monitor` (каждые 30 с: инциденты `server_offline` /
+`exit_down` с учётом allowlist сайтов; восстановление закрывает инцидент).
+`uptime_24h_pct` в `GET /api/v1/servers` — покрытие 15-секундных бакетов за
+24 ч; `service_uptime` в `/api/v1/metrics/overview` — по истории heartbeat.
+API инцидентов: `GET /api/v1/incidents`, `POST .../{id}/ack|resolve`.
+Журнал аудита: `GET /api/v1/events` (без секретов).
 
 ### 3.5 Клиентский трафик
 1. Клиент → entry:443 VLESS+REALITY (маскировка под TLS к выбранному домену).
@@ -291,8 +312,16 @@ SSE работает через БД-события. Горизонтально�
 - Логи — JSON в stdout: `ts`, `level`, `request_id`/`job_id`, `event`, длительность; секреты
   маскируются. Docker пишет json-file с ротацией 10 MB × 3.
 - `GET /healthz` → `{status, db, version}` (200/503) — только локальная БД.
-- `GET /metrics` (Bearer) → Prometheus: node_up, xray_up, traffic_bytes_total,
-  connections_active, errors_total, uptime_seconds.
+- `GET /metrics` (Bearer `METRICS_TOKEN`) → Prometheus:
+  `vpn_node_up`, `vpn_xray_up`, `vpn_traffic_bytes_total`,
+  `vpn_connections_active`, `vpn_incidents_open`, `vpn_uptime_seconds`.
+- Аудит и инциденты: `GET /api/v1/events` (кто/что/когда, без секретов),
+  `GET /api/v1/incidents` + `ack/resolve`; инциденты создаёт health-monitor
+  (offline/exit_down) и пайплайн применения конфигураций (apply failed).
+- Приёмочный smoke: `deploy/scripts/acceptance.sh` против запущенной панели проверяет
+  публичные и админские сценарии (healthz, auth/CSRF, servers/uptime, events/incidents,
+  exits/sites/routing, apply+ревизия, clients/QR/sub, agent-auth), PASS/FAIL/SKIP и exit 1
+  при FAIL; временные ресурсы удаляет, профиль восстанавливает.
 - Инциденты: узел offline (>90 с без heartbeat), выход down (особенно входящий в allowlist),
   apply failed → severity critical/warning с ack/resolve.
 - Агент автономен; панель может быть недоступна — VPN продолжает работать, метрики

@@ -12,6 +12,7 @@
 | `scripts/fetch-artifacts.sh` | скачивает/собирает артефакты узлов в `artifacts/` (см. ниже) |
 | `scripts/backup-sqlite.sh` | консистентный бэкап SQLite через `VACUUM INTO` |
 | `scripts/rotate-encryption-key.py` | перешифрование секретов при ротации `ENCRYPTION_KEY` |
+| `scripts/acceptance.sh` | приёмочный smoke-тест запущенной панели (PASS/FAIL/SKIP, exit 1 при FAIL) |
 
 ## Артефакты узлов
 
@@ -39,6 +40,28 @@ make artifacts-copy   # docker cp в /data/artifacts контейнера app + 
 `- ../artifacts:/data/artifacts:ro` (локальный запуск) или смонтируйте свой каталог, например
 `- /opt/vpn-artifacts:/data/artifacts:ro`. В Dokploy каталог репозитория может пересоздаваться
 при деплое, поэтому по умолчанию используется том `panel-data`.
+
+## Приёмка
+
+Скрипт проверяет запущенную панель по HTTP (панель должна быть доступна):
+
+```bash
+export BASE_URL=https://panel.example.com
+export ADMIN='you@example.com'
+export PASSWORD='...'
+# export METRICS_TOKEN='...'          # если /metrics защищён токеном
+bash deploy/scripts/acceptance.sh
+
+# временный entry-сервер (fake SSH), если entry-узлов ещё нет:
+export ACCEPTANCE_CREATE_ENTRY=1
+bash deploy/scripts/acceptance.sh
+```
+
+Проверяются healthz/openapi, /metrics, auth/CSRF/сессии, серверы и uptime_24h_pct,
+events/incidents, выходы (external creds + check), сайты (Anthropic allowlist, RU-lock),
+профиль маршрутизации, /routing/check, /routing/apply + ревизия с entry-конфигом,
+клиенты (link/profile/qr), подписки /sub в форматах sing-box/clash/v2ray, agent-auth.
+Временные ресурсы удаляются, профиль маршрутизации восстанавливается. Подробнее — SETUP.md §14.0.
 
 ## Переменные и деплой
 

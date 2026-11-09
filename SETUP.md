@@ -710,6 +710,35 @@ GitHub (пресеты) — каждому свой allowlist, если хоти
 Выполняйте на устройстве, подключённом к VPN (умный профиль), и на серверах. Все проверки —
 обязательная часть приёмки.
 
+### 14.0 Автоматическая приёмка (acceptance.sh)
+
+Один самодостаточный smoke-скрипт проверяет публичные и админские сценарии по HTTP и печатает
+PASS/FAIL/SKIP по шагам (секреты не выводит):
+
+```bash
+export BASE_URL=https://panel.example.com
+export ADMIN='you@example.com'
+export PASSWORD='<пароль>'
+export METRICS_TOKEN='<токен, если задан>'   # можно не задавать
+export ACCEPTANCE_CREATE_ENTRY=1             # 1 — создать временный entry, если его нет
+bash deploy/scripts/acceptance.sh
+```
+
+Что проверяется: healthz/openapi; /metrics с Bearer и без; login/rate-limit/CSRF/cookie-сессии;
+/servers (поле uptime_24h_pct); /events (аудит); /incidents (200, пустой список допустим);
+/metrics/overview; создание external exit + сохранение creds + check; пресеты и
+Anthropic-allowlist; RU-lock (ru_direct_locked); PUT /routing/profile (updated_at);
+/routing/check для anthropic.com (site_rule), example.com (default), yandex.ru (ru_direct);
+/routing/apply -> ревизия и entry-конфиг в configs; клиент (sub_token/last_seen_at/stats),
+link vless://, smart-профиль с geosite-category-ru, qr.svg; /sub/{token} в форматах
+sing-box/clash/v2ray; unauthorized agent API; logout.
+
+Скрипт создаёт временные ресурсы и удаляет их, а профиль маршрутизации восстанавливает.
+ACCEPTANCE_CREATE_ENTRY=1 создаёт временный entry-сервер с fake SSH (нужен, если entry-узлов
+ещё нет; иначе link/profile/qr/sub будут SKIP, а apply вернёт ожидаемый 409 no_entry_servers).
+Ожидаемый результат: acceptance: PASS=... FAIL=0 SKIP=... и acceptance: OK (exit 0).
+
+
 ### 14.1 Панель и API
 
 ```bash
@@ -801,6 +830,27 @@ curl -fsS -A sing-box "https://panel.example.com/sub/<token>" | head -20
 ```
 
 Должен вернуться профиль (JSON/YAML по User-Agent), без админских данных.
+
+### 14.9 Инциденты, события и uptime
+
+С авторизованной cookie и CSRF (как получить — docs/RUNBOOK.md §1):
+
+```bash
+curl -fsS -b cookies.txt "$PANEL/api/v1/incidents" | python3 -m json.tool | head -40
+curl -fsS -b cookies.txt -H "X-CSRF-Token: $CSRF" -X POST "$PANEL/api/v1/incidents/<id>/ack"
+curl -fsS -b cookies.txt -H "X-CSRF-Token: $CSRF" -X POST "$PANEL/api/v1/incidents/<id>/resolve"
+curl -fsS -b cookies.txt "$PANEL/api/v1/events?limit=20" | python3 -m json.tool | head -60
+curl -fsS -b cookies.txt "$PANEL/api/v1/servers" | python3 -c 'import json,sys; print([(s["name"], s["uptime_24h_pct"]) for s in json.load(sys.stdin)])'
+```
+
+- Инциденты создаются автоматически: узел offline (>90 с без heartbeat), выход down (если он
+  входит в allowlist сайта), сбой применения конфигурации. После проверки fail-closed (§14.5)
+  в списке появится инцидент про выход — подтвердите (ack) и закройте (resolve) после ремонта.
+- События — журнал безопасности/аудита: входы, изменения маршрутизации, действия с серверами
+  (без секретов).
+- uptime_24h_pct в списке серверов — покрытие 15-секундных метрик за 24 ч; service_uptime —
+  в /api/v1/metrics/overview.
+
 
 ---
 

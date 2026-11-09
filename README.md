@@ -191,6 +191,12 @@ SSH/REALITY-секреты. Храните его отдельно от резе
   `docker compose config`.
 - `deploy/secret-scan.sh` — регулярные выражения (PEM, AWS/GitHub/OpenAI/Slack-токены,
   присвоения секретных переменных) + проверка `.gitignore`. Значения в лог не выводятся.
+- `deploy/scripts/acceptance.sh` — приёмочный smoke-тест **запущенной** панели
+  (`BASE_URL`/`ADMIN`/`PASSWORD`, опционально `METRICS_TOKEN`): healthz/openapi/metrics,
+  auth+CSRF, серверы и uptime_24h_pct, events/incidents, выходы/сайты/routing
+  (check + apply + ревизия), клиенты/QR/подписки в форматах sing-box/clash/v2ray,
+  agent-auth. Печатает PASS/FAIL/SKIP, exit 1 при FAIL; временные ресурсы удаляет, профиль
+  маршрутизации восстанавливает. Подробности — SETUP.md §14.0.
 
 ## Безопасность (кратко)
 

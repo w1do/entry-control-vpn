@@ -47,6 +47,16 @@ curl -fsS -b cookies.txt "$PANEL/api/v1/incidents" | python3 -m json.tool | head
 
 # 7) метрики Prometheus (если задан METRICS_TOKEN)
 curl -fsS -H "Authorization: Bearer $METRICS_TOKEN" "$PANEL/metrics" | head
+
+# 8) инциденты: подтверждение и закрытие (нужен X-CSRF-Token из /auth/me)
+curl -fsS -b cookies.txt -H "X-CSRF-Token: $CSRF" -X POST "$PANEL/api/v1/incidents/<id>/ack"
+curl -fsS -b cookies.txt -H "X-CSRF-Token: $CSRF" -X POST "$PANEL/api/v1/incidents/<id>/resolve"
+
+# 9) журнал событий (аудит: входы, изменения, операции с узлами — без секретов)
+curl -fsS -b cookies.txt "$PANEL/api/v1/events?limit=50" | python3 -m json.tool | head -80
+
+# 10) полный приёмочный smoke-тест (см. ниже)
+#   BASE_URL=... ADMIN=... PASSWORD=... [METRICS_TOKEN=...] bash deploy/scripts/acceptance.sh
 ```
 
 Логи входа (получить cookie/CSRF для API-команд):
@@ -56,6 +66,18 @@ curl -fsS -c cookies.txt -H 'Content-Type: application/json' \
   -d '{"email":"'"$ADMIN"'","password":"'"$PASSWORD"'"}' "$PANEL/api/v1/auth/login" >/dev/null
 CSRF=$(curl -fsS -b cookies.txt "$PANEL/api/v1/auth/me" | python3 -c 'import json,sys; print(json.load(sys.stdin)["csrf_token"])')
 ```
+
+Полный приёмочный smoke-тест всех публичных и админских сценариев (healthz, auth/CSRF, серверы
+и uptime, events/incidents, выходы/сайты/routing, apply+ревизия, клиенты/QR/подписки,
+agent-auth) — `deploy/scripts/acceptance.sh`:
+
+```bash
+BASE_URL="$PANEL" ADMIN='...' PASSWORD='...' [METRICS_TOKEN='...'] \
+  bash deploy/scripts/acceptance.sh
+```
+
+Выводит PASS/FAIL/SKIP, exit 1 при FAIL; создаёт временные ресурсы и удаляет их, профиль
+маршрутизации восстанавливает. Подробности и ожидаемый результат — SETUP.md §14.0.
 
 ## 2. Деградации
 
