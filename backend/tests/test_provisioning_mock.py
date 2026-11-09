@@ -153,7 +153,10 @@ def test_provision_job_success_with_fake_ssh(tmp_path, monkeypatch) -> None:
     asyncio.run(execute_job(job_id, settings, box, get_session_factory()))
     server, job = _assert_state(server_id, job_id, "succeeded")
     assert job.status == "succeeded", job.error
-    assert server.status == "online"
+    # Provisioning no longer claims "online" before the agent registers: the
+    # node is reachable but the panel has not seen a heartbeat yet.
+    assert server.status == "degraded"
+    assert server.degraded_reason
     assert server.agent_token_hash
     assert server.base_dir == BASE
     assert f"{BASE}/bin/xray" in files

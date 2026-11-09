@@ -379,9 +379,11 @@ def run_stand(keep: bool) -> int:
 
         server = client.wait(
             f"/api/v1/servers/{server_id}",
-            lambda body: isinstance(body, dict) and body.get("status") == "online",
+            lambda body: isinstance(body, dict) and body.get("status") in {"degraded", "online"},
         )
-        check("server_online_after_provisioning", server.get("status") == "online")
+        # Services are installed, but "online" is only reported after the agent
+        # registers. Until then the node must not be presented as healthy.
+        check("server_degraded_after_provisioning", server.get("status") == "degraded", str(server.get("status")))
         base = Path(server["base_dir"])
         check("base_dir_is_sandbox_home", str(base) == str(home / "config" / "vpn"), str(base))
 
@@ -407,7 +409,7 @@ def run_stand(keep: bool) -> int:
         agent_unit = (sandbox / "etc" / "systemd" / "system" / "vpn-agent.service").read_text()
         check("xray_unit_installed", f"ExecStart={base}/bin/xray run -c {base}/etc/xray.json" in xray_unit)
         check("xray_unit_asset_env", f"XRAY_LOCATION_ASSET={base}/etc" in xray_unit)
-        check("agent_unit_installed", f"ExecStart={base}/bin/vpn-agent serve" in agent_unit)
+        check("agent_unit_installed", f"ExecStart={base}/bin/vpn-agent serve --base {base}" in agent_unit)
 
         status, _ = client.request(
             "POST",

@@ -26,7 +26,9 @@ from app.core.config import Settings
 from app.core.db import get_session_factory
 from app.core.logging import get_logger
 from app.core.timeutils import ensure_utc, utcnow
+from app.models.routing import Exit
 from app.models.servers import Server
+from app.services.exit_health import check_exit
 from app.services.health_monitor import run_health_monitor
 from app.services.metrics_agg import aggregate_buckets, purge_expired
 
@@ -42,6 +44,7 @@ JOB_IDS = (
     "metrics_aggregate",
     "metrics_purge",
     "health_monitor",
+    "exit_health",
 )
 
 
@@ -142,6 +145,21 @@ def setup_scheduler(app: FastAPI, settings: Settings) -> AsyncIOScheduler:
         coalesce=True,
         next_run_time=utcnow() + timedelta(seconds=5),
     )
+    async def job_exit_health() -> None:
+        try:
+            from sqlalchemy import select
+
+            async with get_session_factory()() as session:
+                exits = list((await session.scalars(select(Exit).where(Exit.enabled.is_(True)))).all())
+                for exit_row in exits:
+                    health, delay, _detail = await check_exit(exit_row)
+                    exit_row.health = health
+                    exit_row.last_check_at = utcnow()
+                    exit_row.last_delay_ms = delay
+                await session.commit()
+        except Exception:  # noqa: BLE001
+            _log_job_failure("exit_health")
+
     scheduler.add_job(
         job_health_monitor,
         "interval",
@@ -150,6 +168,15 @@ def setup_scheduler(app: FastAPI, settings: Settings) -> AsyncIOScheduler:
         max_instances=1,
         coalesce=True,
         next_run_time=utcnow(),
+    )
+    scheduler.add_job(
+        job_exit_health,
+        "interval",
+        seconds=max(10, settings.exit_health_interval_seconds),
+        id="exit_health",
+        max_instances=1,
+        coalesce=True,
+        next_run_time=utcnow() + timedelta(seconds=10),
     )
     scheduler.start()
     app.state.scheduler = scheduler

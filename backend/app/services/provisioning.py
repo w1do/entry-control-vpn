@@ -16,6 +16,7 @@ from app.models.ops import Job
 from app.models.servers import Server, ServerSecret
 from app.services import ssh
 from app.services.jobs import append_event, finish_job, start_job
+from app.services.routing_apply import bootstrap_after_provision
 
 
 def _reality_dest(value: str | None) -> str:
@@ -31,7 +32,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart={base}/bin/vpn-agent serve
+Environment=HOME={home}
+ExecStart={base}/bin/vpn-agent serve --base {base}
 Restart=always
 RestartSec=5
 NoNewPrivileges=yes
@@ -196,6 +198,7 @@ async def run_provision_job(
         home = await ssh.run(conn, "bash -lc 'echo $HOME'")
         base_dir = home.stdout.strip() or "/root"
         base = f"{base_dir}/config/vpn"
+        home = base[: -len("/config/vpn")] if base.endswith("/config/vpn") else base_dir
         server.base_dir = base
 
         await _event(session_factory, job_id, progress=15, step="dirs", message=f"Создание {base}")
@@ -238,7 +241,7 @@ async def run_provision_job(
         await _event(session_factory, job_id, progress=55, step="units", message="Установка systemd-юнитов")
         unit_dir = "/etc/systemd/system"
         await ssh.put_text(conn, f"{unit_dir}/xray.service", XRAY_UNIT.format(base=base), mode=0o644, sudo=True)
-        await ssh.put_text(conn, f"{unit_dir}/vpn-agent.service", AGENT_UNIT.format(base=base), mode=0o644, sudo=True)
+        await ssh.put_text(conn, f"{unit_dir}/vpn-agent.service", AGENT_UNIT.format(base=base, home=home), mode=0o644, sudo=True)
 
         await _event(session_factory, job_id, progress=65, step="validate", message="Проверка конфигурации Xray")
         test = await ssh.run(
@@ -274,7 +277,8 @@ async def run_provision_job(
             server_row = await db.get(Server, server_id)
             if server_row is not None:
                 server_row.agent_token_hash = sha256_hex(agent_token)
-                server_row.status = "online"
+                server_row.status = "degraded"
+                server_row.degraded_reason = "Агент ещё не подключился"
                 server_row.base_dir = base
                 server_row.updated_at = utcnow()
             job_row = await db.get(Job, job_id)
@@ -292,6 +296,23 @@ async def run_provision_job(
                 )
             await append_event(db, job_id, step="waiting_agent", message="Ожидание первого heartbeat агента")
             await db.commit()
+
+        async with session_factory() as db:
+            server_row = await db.get(Server, server_id)
+            if server_row is not None:
+                try:
+                    revision = await bootstrap_after_provision(db, server_row, secret_box)
+                except Exception:  # noqa: BLE001 - bootstrap must not fail provisioning
+                    revision = None
+                if revision is not None:
+                    async with session_factory() as ev_db:
+                        await append_event(
+                            ev_db,
+                            job_id,
+                            step="routing_configured",
+                            message=f"Маршрутизация настроена автоматически (ревизия {revision.id})",
+                        )
+                        await ev_db.commit()
     except Exception as exc:  # noqa: BLE001 - report any provisioning failure to the job
         message = str(exc)
         async with session_factory() as db:
@@ -405,6 +426,31 @@ async def execute_job(
         return
     if job_type == "uninstall" and server_id is not None:
         await run_uninstall_job(job_id, server_id, settings, secret_box, session_factory)
+        return
+    if job_type == "exit_health_check":
+        from app.models.routing import Exit
+        from app.services.exit_health import check_exit
+
+        async with session_factory() as db:
+            job = await db.get(Job, job_id)
+            exit_id = (job.payload_json or {}).get("exit_id") if job is not None else None
+            exit_row = await db.get(Exit, int(exit_id)) if exit_id is not None else None
+            if job is None or exit_row is None:
+                if job is not None:
+                    await finish_job(db, job, status="failed", error="Выход не найден")
+                await db.commit()
+                return
+            health, delay, detail = await check_exit(exit_row)
+            exit_row.health = health
+            exit_row.last_check_at = utcnow()
+            exit_row.last_delay_ms = delay
+            await finish_job(
+                db,
+                job,
+                status="succeeded",
+                result={"exit_id": exit_row.id, "health": health, "delay_ms": delay, "detail": detail},
+            )
+            await db.commit()
         return
     if job_type == "apply":
         async with session_factory() as db:

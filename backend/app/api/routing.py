@@ -12,26 +12,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import AuthContext, get_auth, require_csrf
 from app.api.errors import ApiError
 from app.compiler import (
-    ClientSpec,
     CompileError,
-    EntryCompileInput,
-    EntryNodeSpec,
-    ExitCompileInput,
-    ExitNodeSpec,
     ExitOutboundSpec,
     ExitSpec,
-    RealityInboundSpec,
     RoutingSpec,
     SiteRuleSpec,
-    compile_entry_config,
-    compile_exit_config,
     match_route,
-    sha256_json,
     validate_routing,
 )
 from app.core.db import get_session
-from app.models.routing import Client, Exit, RoutingProfile, RoutingRevision, SiteRule
-from app.models.servers import Server, ServerConfig, ServerSecret
+from app.models.routing import Exit, RoutingProfile, RoutingRevision, SiteRule
+from app.models.servers import ServerConfig, ServerSecret
+from app.services import routing_apply
 from app.services.jobs import create_job
 
 router = APIRouter(prefix="/api/v1/routing", tags=["routing"])
@@ -271,124 +263,27 @@ async def apply_routing(
     auth: AuthContext = Depends(require_csrf),
     db: AsyncSession = Depends(get_session),
 ) -> dict:
-    profile = await _default_profile(db)
-    exits = list((await db.scalars(select(Exit).order_by(Exit.id))).all())
-    rules = list((await db.scalars(select(SiteRule).order_by(SiteRule.position, SiteRule.id))).all())
-    secrets = _all_secrets(list((await db.scalars(select(ServerSecret))).all()))
-    box = request.app.state.secret_box
-    spec = _routing_spec(profile, exits, rules, secrets, box)
-    issues = _profile_issues(spec)
-    if issues:
+    try:
+        revision = await routing_apply.create_revision(db, request.app.state.secret_box)
+    except routing_apply.RoutingNotReady as exc:
         raise ApiError(
             "routing_not_ready",
             "Профиль не готов к применению",
             400,
-            details={"issues": issues},
-        )
-    servers = list((await db.scalars(select(Server).order_by(Server.id))).all())
-    entry_servers = [server for server in servers if server.is_entry]
-    exit_servers = [server for server in servers if server.is_exit]
-    clients = list((await db.scalars(select(Client).where(Client.enabled.is_(True)).order_by(Client.id))).all())
-    if not entry_servers:
-        raise ApiError("no_entry_servers", "Нет ни одного entry-узла", 409)
-
-    revision = RoutingRevision(status="pending", profile_json={}, config_hashes_json={})
-    db.add(revision)
-    await db.flush()
-
-    configs: dict[int, dict] = {}
-    hashes: dict[str, str] = {}
-    peers: list = []
-    for server in entry_servers:
-        secret = secrets.get(server.id)
-        if secret is None or not secret.reality_private_key_enc:
-            continue
-        interconnect_uuid = box.decrypt(secret.interconnect_uuid_enc) if secret.interconnect_uuid_enc else ""
-        from app.compiler import EntryPeerSpec
-
-        peers.append(
-            EntryPeerSpec(entry_server_id=server.id, uuid=interconnect_uuid, email=f"entry-{server.id}")
-        )
-        entry_input = EntryCompileInput(
-            node=EntryNodeSpec(
-                server_id=server.id,
-                public_host=server.host,
-                base_dir=server.base_dir,
-                inbound=RealityInboundSpec(
-                    listen="0.0.0.0",
-                    port=443,
-                    dest=_reality_dest(secret.real_dest),
-                    server_names=(secret.real_sni or "www.microsoft.com",),
-                    private_key=box.decrypt(secret.reality_private_key_enc),
-                    short_ids=tuple(secret.short_ids_json or ("",)),
-                ),
-            ),
-            clients=tuple(
-                ClientSpec(uuid=client.uuid, email=client.email_tag) for client in clients
-            ),
-            routing=spec,
-        )
-        try:
-            configs[server.id] = compile_entry_config(entry_input)
-        except CompileError as exc:
-            revision.status = "failed"
-            revision.error = str(exc)
-            await db.commit()
-            raise ApiError("compile_failed", f"Ошибка генерации конфигурации: {exc}", 400) from exc
-
-    for server in exit_servers:
-        secret = secrets.get(server.id)
-        if secret is None or not secret.reality_private_key_enc:
-            continue
-        exit_input = ExitCompileInput(
-            node=ExitNodeSpec(
-                server_id=server.id,
-                inbound=RealityInboundSpec(
-                    listen="0.0.0.0",
-                    port=INTERCONNECT_PORT,
-                    dest=secret.real_dest or "www.apple.com",
-                    server_names=(secret.real_sni or "www.apple.com",),
-                    private_key=box.decrypt(secret.reality_private_key_enc),
-                    short_ids=tuple(secret.short_ids_json or ("",)),
-                ),
-            ),
-            peers=tuple(peers),
-        )
-        try:
-            configs[server.id] = compile_exit_config(exit_input)
-        except CompileError as exc:
-            revision.status = "failed"
-            revision.error = str(exc)
-            await db.commit()
-            raise ApiError("compile_failed", f"Ошибка генерации exit-конфигурации: {exc}", 400) from exc
-
-    for server in servers:
-        config = configs.get(server.id)
-        if config is None:
-            continue
-        sha = sha256_json(config)
-        hashes[str(server.id)] = sha
-        db.add(
-            ServerConfig(
-                server_id=server.id,
-                revision_id=revision.id,
-                config_json=config,
-                sha256=sha,
-            )
-        )
-        server.revision_id = revision.id
-    revision.profile_json = {
-        "enabled": profile.enabled,
-        "default_exit_ids": list(profile.default_exit_ids),
-        "site_rule_ids": [rule.id for rule in rules],
-        "client_ids": [client.id for client in clients],
-    }
-    revision.config_hashes_json = hashes
-    await db.flush()
+            details={"issues": exc.issues},
+        ) from exc
+    except CompileError as exc:
+        await db.rollback()
+        raise ApiError("compile_failed", f"Ошибка генерации конфигурации: {exc}", 400) from exc
     job = await create_job(db, "apply", payload={"revision_id": revision.id})
     await db.commit()
     request.app.state.job_runner.start(job.id)
-    return {"revision_id": revision.id, "job_id": job.id, "servers": sorted(configs), "hashes": hashes}
+    return {
+        "revision_id": revision.id,
+        "job_id": job.id,
+        "servers": sorted(int(server_id) for server_id in revision.config_hashes_json),
+        "hashes": revision.config_hashes_json,
+    }
 
 
 @router.get("/revisions")

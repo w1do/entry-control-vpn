@@ -16,6 +16,7 @@ from app.models.ops import MetricsBucket
 from app.models.routing import Client
 from app.models.servers import Server, ServerSecret
 from app.services.links import build_entry_endpoint, build_smart_profile, build_vless_url
+from app.services.routing_apply import auto_apply
 
 router = APIRouter(prefix="/api/v1/clients", tags=["clients"])
 
@@ -109,6 +110,7 @@ async def get_client(
 @router.post("", status_code=201)
 async def create_client(
     payload: dict,
+    request: Request,
     auth: AuthContext = Depends(require_csrf),
     db: AsyncSession = Depends(get_session),
 ) -> dict:
@@ -138,6 +140,7 @@ async def create_client(
     await db.flush()
     client.email_tag = f"client-{client.id}@vpn"
     await db.commit()
+    await auto_apply(db, request.app.state.secret_box)
     return _client_dict(client)
 
 
@@ -145,6 +148,7 @@ async def create_client(
 async def update_client(
     client_id: int,
     payload: dict,
+    request: Request,
     auth: AuthContext = Depends(require_csrf),
     db: AsyncSession = Depends(get_session),
 ) -> dict:
@@ -166,18 +170,21 @@ async def update_client(
         else:
             client.traffic_limit_bytes = int(raw)
     await db.commit()
+    await auto_apply(db, request.app.state.secret_box)
     return _client_dict(client)
 
 
 @router.delete("/{client_id}", status_code=204)
 async def delete_client(
     client_id: int,
+    request: Request,
     auth: AuthContext = Depends(require_csrf),
     db: AsyncSession = Depends(get_session),
 ) -> Response:
     client = await _client_or_404(db, client_id)
     await db.delete(client)
     await db.commit()
+    await auto_apply(db, request.app.state.secret_box)
     return Response(status_code=204)
 
 

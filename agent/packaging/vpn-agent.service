@@ -6,7 +6,8 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=simple
-ExecStart=/root/config/vpn/bin/vpn-agent serve
+Environment=HOME=/root
+ExecStart=/root/config/vpn/bin/vpn-agent serve --base /root/config/vpn
 Restart=always
 RestartSec=5s
 TimeoutStopSec=20s

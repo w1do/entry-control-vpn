@@ -49,6 +49,8 @@ async def _touch(server: Server, *, status: str | None = None) -> None:
     server.last_seen_at = utcnow()
     if status is not None:
         server.status = status
+        if status == "online":
+            server.degraded_reason = None
 
 
 @router.post("/register", response_model=RegisterResponse)
@@ -60,7 +62,7 @@ async def register(
 ) -> RegisterResponse:
     server.agent_version = payload.agent_version or server.agent_version
     server.xray_version = payload.xray_version or server.xray_version
-    await _touch(server, status="online" if server.status in {"new", "provisioning", "offline"} else None)
+    await _touch(server, status="online" if server.status in {"new", "provisioning", "offline", "degraded"} else None)
     db.add(
         Event(
             kind="agent_registered",
@@ -129,7 +131,7 @@ async def heartbeat(
     if payload.degraded_reason:
         server.status = "degraded"
         server.degraded_reason = payload.degraded_reason[:255]
-    elif server.status in {"new", "provisioning", "offline"}:
+    elif server.status in {"new", "provisioning", "offline", "degraded"}:
         server.status = "online"
         server.degraded_reason = None
     await _touch(server)
