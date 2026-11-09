@@ -41,6 +41,8 @@ def _server_dict(server: Server, traffic_24h: int = 0, uptime_24h_pct: int | Non
         "agent_version": server.agent_version,
         "xray_version": server.xray_version,
         "last_seen_at": server.last_seen_at.isoformat() if server.last_seen_at else None,
+        "created_at": server.created_at.isoformat() if server.created_at else None,
+        "host_fingerprint": server.host_fingerprint,
         "revision_id": server.revision_id,
         "degraded_reason": server.degraded_reason,
         "base_dir": server.base_dir,
@@ -283,6 +285,8 @@ async def server_diagnostics(
         "server_id": server_id,
         "status": server.status,
         "last_seen_at": server.last_seen_at.isoformat() if server.last_seen_at else None,
+        "created_at": server.created_at.isoformat() if server.created_at else None,
+        "host_fingerprint": server.host_fingerprint,
         "report": (event.payload_json or {}).get("report") if event else None,
     }
 

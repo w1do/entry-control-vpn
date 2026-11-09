@@ -138,6 +138,35 @@ async def update_exit(
     exit = await db.get(Exit, exit_id)
     if exit is None:
         raise ApiError("exit_not_found", "Выход не найден", 404)
+    if exit.kind == "external":
+        if "label" in payload:
+            label = str(payload["label"]).strip().lower()
+            if not _LABEL_RE.match(label):
+                raise ApiError("invalid_label", "label: [a-z0-9-], до 24 символов", 400)
+            duplicate = await db.scalar(
+                select(Exit.id).where(Exit.label == label, Exit.id != exit_id)
+            )
+            if duplicate is not None:
+                raise ApiError("label_taken", "Выход с такой меткой уже существует", 409)
+            exit.label = label
+        if "endpoint_host" in payload:
+            host = str(payload["endpoint_host"]).strip()
+            if not host:
+                raise ApiError("invalid_endpoint", "Укажите endpoint_host", 400)
+            exit.endpoint_host = host
+        if "endpoint_port" in payload:
+            try:
+                port = int(payload["endpoint_port"])
+            except (TypeError, ValueError) as exc:
+                raise ApiError("invalid_endpoint", "Некорректный endpoint_port", 400) from exc
+            if not (0 < port < 65536):
+                raise ApiError("invalid_endpoint", "Некорректный endpoint_port", 400)
+            exit.endpoint_port = port
+        if "protocol" in payload:
+            protocol = str(payload["protocol"])
+            if protocol not in {"http", "socks5"}:
+                raise ApiError("invalid_protocol", "Внешний выход: http или socks5", 400)
+            exit.protocol = protocol
     if "enabled" in payload:
         exit.enabled = bool(payload["enabled"])
     if "region" in payload:

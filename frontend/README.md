@@ -69,21 +69,30 @@ WSL не имеет прямого интернета, а `npm` в WSL PATH мо
 Начальный JS (`dist/assets/index-*.js`) ≈ **83 КБ gzip** при лимите 250 КБ; Recharts/страницы/QR
 вынесены в ленивые чанки (Dashboard ≈ 113 КБ gzip, Clients/QR ≈ 11 КБ gzip и т.д.).
 
-## Известные расхождения с backend (на момент сдачи)
+## Интеграция с backend проверена вживую
+
+Локальный прогон (backend `uvicorn app.main:app` на 8000 + `npm run dev` на 5176 с прокси
+`/api`, `/healthz`, `/sub`) с реальными API-вызовами и headless Chrome: вход, дашборд
+(маршрутизация активна), серверы, карточка сервера, выходы (диалог удаления с `used_by_sites`),
+сайты (ревизия применена, проверка маршрута возвращает скомпилированное правило), клиенты
+(connect-модалка: backend-QR smart/vless, URL подписки с копированием), настройки (журнал аудита
+из `GET /events`, ревизии с `applied_at`, детали ревизии). JS-исключений и console.error — 0;
+единственный 4xx/5xx — ожидаемый 501 у `/incidents` (в работе, task-5).
+
+## Известные расхождения с backend
 
 | Что | Состояние |
 |---|---|
-| `GET /api/v1/incidents` + ack/resolve | нет роутера (stub 501) — дашборд/колокольчик показывают пустое состояние с ошибкой; UI готов |
-| Журнал аудита (`GET /api/v1/events` / `/audit`) | нет эндпоинта — вкладка «Журнал аудита» показывает понятное сообщение; фронт пробует `/events`, затем `/audit` |
-| `GET /api/v1/servers` → `uptime_24h_pct` | отсутствует — колонка «Uptime 24 ч» показывает «—» |
-| `GET /api/v1/clients/{id}` | отсутствует — карточка клиента берёт данные из `GET /clients` (список) |
-| `sub_token` клиента | не отдаётся API — smart-QR/профиль строятся через `qr.svg`/`profile`; копирование URL подписки недоступно |
-| `last_seen_at` клиента | не отдаётся — в карточке показывается только создание/статус |
-| `PATCH /api/v1/exits/{id}` | меняет только enabled/region/expected_exit_ip/bandwidth_budget_bytes — остальные поля в UI заблокированы при редактировании |
-| `POST /api/v1/exits` (external) | credentials принимаются, но не сохраняются backend'ом (`secret_enc=None`) — нужен фикс backend |
-| `GET /api/v1/routing/revisions` | нет `applied_at`; UI показывает «—» в колонке «Применена» |
-| `GET /api/v1/routing/profile` | нет `updated_at`; бейдж применения считается по последней ревизии |
-| SSE `progress` | без поля `progress` — фронт дополнительно опрашивает `GET /jobs/{id}` |
-| `DELETE /api/v1/servers/{id}` force | фронт передаёт `{confirm_name, force}` в body; force-ответ `{deleted:true}` обрабатывается |
+| `GET /api/v1/incidents` + ack/resolve | ещё не реализовано (stub 501, task-5); дашборд/колокольчик показывают пустое состояние с ошибкой, UI готов |
+| `GET /api/v1/clients/{id}` | нет эндпоинта — карточка клиента берёт данные из `GET /clients` (список) |
+| `PATCH /api/v1/exits/{id}` | меняет enabled/region/expected_exit_ip/bandwidth_budget_bytes/username/password; label/endpoint/protocol неизменяемы — в UI при редактировании disabled |
+| SSE `progress` | события без поля `progress` — фронт параллельно опрашивает `GET /jobs/{id}` для прогресс-бара |
+| Аудит | `GET /events` отдаёт поле `payload` — нормализуется в `payload_json`; fallback `/audit` оставлен на случай смены пути |
+
+Исправлено backend'ом и учтено фронтом: `uptime_24h_pct` в `/servers`, `sub_token`/`last_seen_at`
+в `/clients`, credentials внешних выходов (шифруются; PATCH принимает username/password),
+`applied_at` в ревизиях и `updated_at` в профиле. Health-семантика выхода: пригоден, если
+`enabled && health !== "down"` (как в backend), поэтому «не проверен» не блокирует маршрутизацию.
 
 Все страницы используют реальные пути/поля из `docs/INTERFACES.md §2.3` и ответов `backend/app/api/*`.
+

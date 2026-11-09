@@ -84,6 +84,28 @@ async def list_clients(
     return result
 
 
+@router.get("/{client_id}")
+async def get_client(
+    client_id: int,
+    auth: AuthContext = Depends(get_auth),
+    db: AsyncSession = Depends(get_session),
+) -> dict:
+    client = await _client_or_404(db, client_id)
+    total = await db.scalar(
+        select(func.sum(MetricsBucket.up_bytes + MetricsBucket.down_bytes)).where(
+            MetricsBucket.client_id == client.id
+        )
+    )
+    last_seen = await db.scalar(
+        select(func.max(MetricsBucket.bucket_ts)).where(MetricsBucket.client_id == client.id)
+    )
+    payload = _client_dict(
+        client, last_seen_at=last_seen.isoformat() if last_seen is not None else None
+    )
+    payload["traffic_bytes"] = int(total or 0)
+    return payload
+
+
 @router.post("", status_code=201)
 async def create_client(
     payload: dict,
