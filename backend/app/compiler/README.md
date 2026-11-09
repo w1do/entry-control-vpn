@@ -87,7 +87,7 @@ geodata is absent).
 Field compatibility result: **no field required by docs/INTERFACES.md or
 design.md had to be removed or rewritten for Xray 26.11.9** - every section
 of design.md section 6.1 is accepted by the pinned binary and validated by
-$xray run -test$. The only field-level gap found is that Xray-core's DNS
+`xray run -test`. The only field-level gap found is that Xray-core's DNS
 config has no per-server detour, so "resolve DoH through the default exit"
 cannot be expressed inside the dns section (see the limitation above).
 

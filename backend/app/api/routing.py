@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request
@@ -245,8 +246,16 @@ async def check_route(
     rules = list((await db.scalars(select(SiteRule).order_by(SiteRule.position, SiteRule.id))).all())
     secrets = _all_secrets(list((await db.scalars(select(ServerSecret))).all()))
     spec = _routing_spec(profile, exits, rules, secrets, request.app.state.secret_box)
-    decision = match_route(domain, spec)
-    return dataclasses.asdict(decision)
+    artifacts = Path(request.app.state.settings.artifacts_dir)
+    geodata_kwargs: dict[str, str] = {}
+    if (artifacts / "geosite.dat").is_file():
+        geodata_kwargs["geosite_path"] = str(artifacts / "geosite.dat")
+    if (artifacts / "geoip.dat").is_file():
+        geodata_kwargs["geoip_path"] = str(artifacts / "geoip.dat")
+    decision = match_route(domain, spec, **geodata_kwargs)
+    payload = dataclasses.asdict(decision)
+    payload["geodata"] = "exact" if geodata_kwargs else "heuristic"
+    return payload
 
 
 @router.post("/apply")

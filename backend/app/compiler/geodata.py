@@ -38,6 +38,7 @@ _TYPE_FULL = 3
 
 _CACHE: dict[tuple[str, str, tuple[str, ...]], Any] = {}
 _ASSET_BYTES: dict[str, bytes] = {}
+_INDEX_CACHE: dict[str, dict[str, tuple[int, int]]] = {}
 
 
 def _varint(buf: bytes, pos: int) -> tuple[int, int]:
@@ -173,6 +174,15 @@ def _asset_bytes(path: Path) -> bytes:
     return data
 
 
+def _asset_index(path: Path, data: bytes) -> dict[str, tuple[int, int]]:
+    key = str(path)
+    index = _INDEX_CACHE.get(key)
+    if index is None:
+        index = _index_entries(data)
+        _INDEX_CACHE[key] = index
+    return index
+
+
 class GeositeMatcher:
     """Domain matcher for one geosite category (optionally filtered by attributes)."""
 
@@ -216,7 +226,7 @@ def geosite_matcher(
     if cached is not None:
         return cached
     data = _asset_bytes(asset)
-    entry = _index_entries(data).get(tag.upper())
+    entry = _asset_index(asset, data).get(tag.upper())
     if entry is None:
         return None
     matcher = GeositeMatcher()
@@ -299,7 +309,7 @@ def geoip_matcher(
     if cached is not None:
         return cached
     data = _asset_bytes(asset)
-    entry = _index_entries(data).get(country.upper())
+    entry = _asset_index(asset, data).get(country.upper())
     if entry is None:
         return None
     matcher = GeoIPMatcher()
@@ -329,3 +339,4 @@ def clear_cache() -> None:
     """Drop cached matchers and asset bytes (used by tests when assets change)."""
     _CACHE.clear()
     _ASSET_BYTES.clear()
+    _INDEX_CACHE.clear()
