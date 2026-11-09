@@ -19,3 +19,7 @@ agent/bin/
 *.log
 
 artifacts/
+
+*.db-shm
+*.db-wal
+backend/demo.db*
