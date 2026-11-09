@@ -36,7 +36,7 @@ AGENT_LDFLAGS ?= -s -w
 ARTIFACTS_DIR ?= artifacts
 XRAY_VERSION  ?= 26.11.9
 
-.PHONY: help dev dev-ui test lint build agent agent-amd64 agent-arm64 \
+.PHONY: help dev dev-ui test lint build image agent agent-amd64 agent-arm64 \
         artifacts artifacts-copy up down secret-scan e2e-node e2e-provisioning
 
 # =============================================================================
@@ -85,6 +85,9 @@ lint: ## Линт: ruff check (backend) + go vet (agent)
 # =============================================================================
 # Сборка
 # =============================================================================
+image: ## Собрать production Docker-образ (multi-stage: frontend + FastAPI)
+	docker build -f deploy/Dockerfile -t entry-control-vpn:latest .
+
 build: ## Production-сборка: frontend/dist + agent binaries
 	cd frontend && if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
 	cd frontend && npm run build

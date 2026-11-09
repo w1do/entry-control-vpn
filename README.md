@@ -141,6 +141,24 @@ make agent
 Подготовка — make artifacts, проверка — make artifacts-check, заливка в контейнер —
 make artifacts-copy. Подробности — deploy/README.md и SETUP.md §8.
 
+## Docker
+
+Production-образ — multi-stage (deploy/Dockerfile): Node собирает SPA, Python 3.12-slim
+запускает FastAPI с миграциями Alembic. Один контейнер отдаёт и API, и интерфейс.
+
+    make image                        # docker build -f deploy/Dockerfile -t entry-control-vpn:latest .
+    # или
+    docker build -f deploy/Dockerfile -t entry-control-vpn:latest .
+
+    cp deploy/.env.example deploy/.env   # заполнить ADMIN/PASSWORD/SECRET_KEY/ENCRYPTION_KEY
+    docker run -d --name vpn-panel -p 8080:8000 --env-file deploy/.env       -e SESSION_COOKIE_SECURE=false -v panel-data:/data entry-control-vpn:latest
+    # UI/API: http://127.0.0.1:8080
+
+Для боевого деплоя используется deploy/docker-compose.yml (Dokploy + Traefik + TLS,
+том /data, healthcheck) — см. SETUP.md. На каждый push в main CI
+(.github/workflows/ci.yml) собирает образ и публикует его в
+ghcr.io/w1do/entry-control-vpn:latest.
+
 ### 5. Проверки и линт
 
 ```bash
