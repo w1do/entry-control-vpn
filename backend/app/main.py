@@ -14,8 +14,17 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import update
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.api import agent as agent_api
 from app.api import auth as auth_api
+from app.api import clients as clients_api
+from app.api import exits as exits_api
 from app.api import health, stubs
+from app.api import jobs as jobs_api
+from app.api import metrics as metrics_api
+from app.api import routing as routing_api
+from app.api import servers as servers_api
+from app.api import sites as sites_api
+from app.api import subscription as subscription_api
 from app.api.errors import ApiError
 from app.core.config import Settings, get_settings
 from app.core.crypto import SecretBox
@@ -24,6 +33,7 @@ from app.core.logging import configure_logging, get_logger
 from app.core.timeutils import utcnow
 from app.services.auth import bootstrap_admin
 from app.services.rate_limit import LoginRateLimiter
+from app.services.runner import JobRunner
 
 log = get_logger("app.main")
 
@@ -70,6 +80,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
                 "admin_bootstrapped",
                 extra={"data": {"email": created.email, "weak_password": created.must_change_password}},
             )
+    app.state.job_runner = JobRunner(settings, app.state.secret_box, get_session_factory())
     scheduler: AsyncIOScheduler | None = None
     if settings.scheduler_enabled:
         try:
@@ -81,6 +92,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     finally:
         if scheduler is not None:
             scheduler.shutdown(wait=False)
+        await app.state.job_runner.shutdown()
         await dispose_engine()
 
 
@@ -183,6 +195,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(health.router)
     app.include_router(auth_api.router)
+    app.include_router(servers_api.router)
+    app.include_router(exits_api.router)
+    app.include_router(sites_api.router)
+    app.include_router(routing_api.router)
+    app.include_router(clients_api.router)
+    app.include_router(metrics_api.router)
+    app.include_router(jobs_api.router)
+    app.include_router(agent_api.router)
+    app.include_router(subscription_api.router)
+    app.include_router(metrics_api.prometheus_router)
     app.include_router(stubs.router)
 
     static_dir = Path(settings.static_dir) if settings.static_dir else Path(__file__).parent / "static"
