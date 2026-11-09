@@ -1,0 +1,180 @@
+# =============================================================================
+# VPN Control Panel — production compose (Dokploy / self-hosted Docker).
+#
+# Dokploy:
+#   Project -> Create Service -> Compose
+#   Compose Path:        deploy/docker-compose.yml
+#   Environment:         содержимое deploy/.env (Dokploy сам не инжектит .env
+#                        в контейнеры — переменные приходят через env_file)
+#   Domains:             panel.example.com -> service app, port 8000,
+#                        HTTPS + Let's Encrypt (labels Traefik генерирует UI)
+#   Isolated Deployments: OFF (иначе Dokploy не создаст внешнюю dokploy-network)
+#   После сохранения домена/переменных нужен Redeploy.
+#
+# Локально:
+#   cp deploy/.env.example deploy/.env   # заполнить секреты
+#   docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
+#
+# Проверка синтаксиса без запуска:
+#   docker compose -f deploy/docker-compose.yml --env-file deploy/.env config -q
+#
+# Сервис app — один контейнер: FastAPI + собранный SPA + SQLite на томе /data.
+# Публикации ports наружу нет: трафик приходит только от Traefik по
+# dokploy-network, порт 8000 доступен лишь внутри сети Docker.
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # Приложение (backend + frontend + миграции в entrypoint)
+  # ---------------------------------------------------------------------------
+  app:
+    # context — корень репозитория; Dockerfile — deploy/Dockerfile.
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    # container_name намеренно не задаётся: Dokploy сам управляет именами
+    # (иначе ломаются логи/метрики/Domains в интерфейсе).
+    restart: unless-stopped
+
+    # Все переменные из deploy/.env (ADMIN, PASSWORD, SECRET_KEY,
+    # ENCRYPTION_KEY, METRICS_TOKEN, PUBLIC_BASE_URL, DATABASE_URL,
+    # SESSION_COOKIE_SECURE, TZ, ...). Значения не дублируются в environment,
+    # чтобы не перекрывать .env и не хранить секреты в compose-файле.
+    env_file:
+      - .env
+
+    # Порт только для внутренней сети (Traefik подключается к нему через
+    # dokploy-network). Не заменять на ports: — это выставит панель в интернет
+    # без TLS.
+    expose:
+      - "8000"
+
+    # Постоянное состояние: SQLite (app.db), артефакты узлов (xray, vpn-agent,
+    # geoip/geosite), бэкапы. Том переживает redeploy.
+    volumes:
+      - panel-data:/data
+      # Артефакты узлов заливаются в /data/artifacts (named volume):
+      #   make artifacts && make artifacts-copy
+      # Альтернатива — bind-mount каталога на хосте (НЕ в git-репозитории,
+      # иначе Dokploy может пересоздать его при деплое):
+      # - /opt/vpn-artifacts:/data/artifacts:ro
+      # Локальный вариант из репозитория (сначала make artifacts):
+      # - ../artifacts:/data/artifacts:ro
+
+    # Healthcheck обязателен для Dokploy и restart-политики. /healthz делает
+    # быстрый SELECT 1 и НЕ проверяет удалённые узлы (падение exit-узла не
+    # должно снимать маршрут с самой панели).
+    healthcheck:
+      test:
+        - "CMD"
+        - "python"
+        - "-c"
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=5).read()"
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      # Миграции в entrypoint могут занимать десятки секунд.
+      start_period: 90s
+
+    # Дать завершиться in-process jobs и закрыть SSE-стримы.
+    stop_grace_period: 30s
+    # PID 1 перехватывает сигналы и убирает зомби-процессы.
+    init: true
+
+    # Ресурсные лимиты: в покое панель потребляет ~100-150 МБ; запас — на
+    # провижининг по SSH и миграции. CPU в покое < 5%.
+    mem_limit: 512m
+    cpus: 1.0
+
+    security_opt:
+      - "no-new-privileges:true"
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    networks:
+      - dokploy-network
+      - internal
+
+    # PostgreSQL-профиль (см. db ниже): app стартует после healthy-БД.
+    # required: false — при обычном запуске без --profile postgres зависимости
+    # нет и app стартует сразу (SQLite).
+    depends_on:
+      db:
+        condition: service_healthy
+        required: false
+
+    # -------------------------------------------------------------------------
+    # Traefik labels — ТОЛЬКО если домен задаётся вручную, а не через UI
+    # Dokploy. В UI Dokploy (Domains -> app, port 8000) labels генерируются
+    # автоматически, дублировать их не нужно.
+    # -------------------------------------------------------------------------
+    # labels:
+    #   traefik.enable=true
+    #   traefik.docker.network=dokploy-network
+    #   traefik.http.routers.vpn-panel.rule=Host(\`panel.example.com\`)
+    #   traefik.http.routers.vpn-panel.entrypoints=websecure
+    #   traefik.http.routers.vpn-panel.tls.certresolver=letsencrypt
+    #   traefik.http.services.vpn-panel.loadbalancer.server.port=8000
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL (опционально). Включается profile postgres:
+  #   docker compose -f deploy/docker-compose.yml --profile postgres up -d
+  # и требует в deploy/.env:
+  #   POSTGRES_DB=vpn
+  #   POSTGRES_USER=vpn
+  #   POSTGRES_PASSWORD=<пароль: только латиница/цифры>
+  #   DATABASE_URL=postgresql+asyncpg://vpn:<пароль>@db:5432/vpn
+  # БЕЗ профиля контейнер db не создаётся — по умолчанию используется SQLite.
+  # Наружу БД не публикуется: только internal-сеть, без ports.
+  # ---------------------------------------------------------------------------
+  db:
+    profiles: ["postgres"]
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-vpn}
+      POSTGRES_USER: ${POSTGRES_USER:-vpn}
+      # Пустое значение = контейнер db намеренно не стартует: задайте пароль
+      # в deploy/.env (Dokploy Environment), иначе запуск через profile
+      # postgres бессмысленен.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+    volumes:
+      # Для PostgreSQL 18+ официальный образ хранит данные в /var/lib/postgresql
+      # (не /var/lib/postgresql/data).
+      - panel-db:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-vpn} -d ${POSTGRES_DB:-vpn}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    stop_grace_period: 30s
+    mem_limit: 512m
+    security_opt:
+      - "no-new-privileges:true"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - internal
+
+volumes:
+  # SQLite-БД, артефакты узлов, резервные копии (/data).
+  panel-data:
+  # Данные PostgreSQL (используется только с --profile postgres).
+  panel-db:
+
+networks:
+  # Внешняя сеть Dokploy: через неё Traefik находит контейнер app.
+  # Создаётся Dokploy; при Isolated Deployments = OFF уже существует.
+  dokploy-network:
+    external: true
+  # Внутренняя сеть для app <-> db. Без доступа в интернет и без публикации.
+  internal:
+    internal: true

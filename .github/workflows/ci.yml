@@ -1,0 +1,196 @@
+# =============================================================================
+# CI: backend (ruff + mypy + pytest), frontend (tsc + Vite build),
+#     agent (go vet/test + сборка linux/amd64 и linux/arm64),
+#     артефакты узлов (Xray + geodata + vpn-agent), secret-scan,
+#     валидация docker-compose.
+#
+# Docker-образ здесь не собирается: его собирает Dokploy при деплое.
+# Все секреты в CI — заведомо фейковые и генерируются на месте.
+# =============================================================================
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.12"
+  NODE_VERSION: "24"
+
+jobs:
+  backend:
+    name: backend (ruff + mypy + pytest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          if [ -f requirements-dev.txt ]; then
+            pip install -r requirements-dev.txt
+          else
+            pip install pytest pytest-asyncio httpx
+          fi
+          pip install ruff mypy
+
+      - name: Export fake test environment
+        run: |
+          python - <<'PY' >> "$GITHUB_ENV"
+          from cryptography.fernet import Fernet
+          print("ENCRYPTION_KEY=" + Fernet.generate_key().decode())
+          PY
+          echo "ADMIN=admin@example.com" >> "$GITHUB_ENV"
+          echo "PASSWORD=placeholder-password-1234" >> "$GITHUB_ENV"
+          echo "SECRET_KEY=placeholder-secret-key-0123456789abcdef" >> "$GITHUB_ENV"
+          echo "DATABASE_URL=sqlite+aiosqlite:///./ci-test.db" >> "$GITHUB_ENV"
+          echo "SESSION_COOKIE_SECURE=false" >> "$GITHUB_ENV"
+          echo "TZ=UTC" >> "$GITHUB_ENV"
+
+      - name: ruff
+        run: ruff check .
+
+      - name: mypy (informational, does not fail the build)
+        continue-on-error: true
+        run: mypy app
+
+      - name: pytest
+        run: pytest -q
+
+  frontend:
+    name: frontend (tsc + build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci --no-audit --no-fund
+          else
+            npm install --no-audit --no-fund
+          fi
+
+      - name: Typecheck (if a typecheck script exists)
+        run: npm run typecheck --if-present
+
+      - name: Build
+        run: npm run build
+
+  agent:
+    name: agent (go test + build amd64/arm64)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: agent
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: agent/go.mod
+          check-latest: false
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test
+        run: go test ./...
+
+      - name: Build linux/amd64
+        run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o dist/vpn-agent-linux-amd64 ./cmd/vpn-agent
+
+      - name: Build linux/arm64
+        run: CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "-s -w" -o dist/vpn-agent-linux-arm64 ./cmd/vpn-agent
+
+      - name: Upload agent binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: vpn-agent-linux
+          path: agent/dist/vpn-agent-linux-*
+          if-no-files-found: error
+          retention-days: 14
+
+  node-artifacts:
+    name: node artifacts (xray + geodata + vpn-agent)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: agent/go.mod
+          check-latest: false
+
+      - name: Build artifacts bundle
+        run: bash deploy/scripts/fetch-artifacts.sh
+
+      - name: Verify required file names
+        run: |
+          for f in xray-linux-amd64 vpn-agent-linux-amd64 geoip.dat geosite.dat; do
+            test -s "artifacts/$f" || { echo "missing artifacts/$f"; exit 1; }
+          done
+          ls -l artifacts/
+
+      - name: Upload node artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: node-artifacts
+          path: artifacts/xray-linux-amd64
+          if-no-files-found: error
+          retention-days: 14
+
+  secret-scan:
+    name: secret-scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan repository for leaked secrets
+        run: bash deploy/secret-scan.sh
+
+  compose-config:
+    name: compose config
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare placeholder .env (no real secrets)
+        run: cp deploy/.env.example deploy/.env
+
+      - name: Validate default profile (SQLite)
+        run: docker compose -f deploy/docker-compose.yml --env-file deploy/.env config -q
+
+      - name: Validate postgres profile
+        run: docker compose -f deploy/docker-compose.yml --env-file deploy/.env --profile postgres config -q

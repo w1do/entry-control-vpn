@@ -1,0 +1,54 @@
+# Контекст сборки Docker — корень репозитория (deploy/Dockerfile).
+# Исключаем всё, что не нужно образу, и все секреты.
+.git
+.github
+.gitignore
+.venv
+.tools
+.tmp
+.pytest_cache
+.ruff_cache
+.mypy_cache
+coverage
+htmlcov
+
+# Секреты и локальное состояние — никогда не должны попасть в образ.
+deploy/.env
+deploy/.env.*
+!deploy/.env.example
+*.pem
+*.key
+*.p12
+*.db
+*.sqlite
+*.log
+
+# Backend: тесты и кэши не нужны в runtime-образе.
+backend/tests
+backend/**/__pycache__
+backend/**/*.pyc
+backend/app/static
+
+# Frontend: исходники собираются в stage 1, dist приходит из него же.
+frontend/node_modules
+frontend/dist
+frontend/.vite
+frontend/**/*.log
+node_modules
+
+# Агент: бинарники собираются отдельно (make agent), в образ панели не входят.
+agent/bin
+agent/dist
+
+# Артефакты узлов (скачиваются вручную, в образ не входят).
+artifacts
+deploy/.tmp
+
+# Документация/спеки не нужны в образе.
+docs
+openspec
+research
+SETUP.md
+README.md
+REAMDE.md
+Makefile
