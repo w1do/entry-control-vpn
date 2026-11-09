@@ -714,6 +714,8 @@ GitHub (пресеты) — каждому свой allowlist, если хоти
 
 **Локальный E2E узла (без VPS):** make e2e-node — поднимает панель на свободном порту и гоняет реальный vpn-agent через fake Xray/systemd (register → heartbeat → config poll → apply → apply-result → metrics → diagnose). Ожидаемо: e2e-node: PASS=11 FAIL=0. Требуется Go и собранный .venv.
 
+**Локальный E2E провижининга (без VPS):** make e2e-provisioning — панель через реальный asyncssh-клиент разворачивает fake-узла в sandbox (загрузка Xray/vpn-agent/geodata, bootstrap-конфиг, systemd-юниты, xray -test), после чего загруженный агент регистрируется в панели. Ожидаемо: e2e-provisioning: PASS=20 FAIL=0.
+
 Один самодостаточный smoke-скрипт проверяет публичные и админские сценарии по HTTP и печатает
 PASS/FAIL/SKIP по шагам (секреты не выводит):
 

@@ -145,6 +145,10 @@ def test_provision_job_success_with_fake_ssh(tmp_path, monkeypatch) -> None:
         files[path] = content.encode()
 
     monkeypatch.setattr(ssh, "put_text", fake_put_text)
+    async def fake_put_file(c, local_path, remote_path, *, mode=0o644, sudo=False):
+        files[remote_path] = Path(local_path).read_bytes()
+
+    monkeypatch.setattr(ssh, "put_file", fake_put_file)
 
     asyncio.run(execute_job(job_id, settings, box, get_session_factory()))
     server, job = _assert_state(server_id, job_id, "succeeded")
@@ -194,6 +198,10 @@ def test_provision_job_fails_when_xray_test_fails(tmp_path, monkeypatch) -> None
         files[path] = content.encode()
 
     monkeypatch.setattr(ssh, "put_text", fake_put_text)
+    async def fake_put_file(c, local_path, remote_path, *, mode=0o644, sudo=False):
+        files[remote_path] = Path(local_path).read_bytes()
+
+    monkeypatch.setattr(ssh, "put_file", fake_put_file)
 
     asyncio.run(execute_job(job_id, settings, box, get_session_factory()))
     server, job = _assert_state(server_id, job_id, "failed")
@@ -218,6 +226,10 @@ def test_provision_job_fails_without_artifacts(tmp_path, monkeypatch) -> None:
         return None
 
     monkeypatch.setattr(ssh, "put_text", fake_put_text)
+    async def fake_put_file(c, local_path, remote_path, *, mode=0o644, sudo=False):
+        files[remote_path] = Path(local_path).read_bytes()
+
+    monkeypatch.setattr(ssh, "put_file", fake_put_file)
 
     asyncio.run(execute_job(job_id, settings, box, get_session_factory()))
     server, job = _assert_state(server_id, job_id, "failed")

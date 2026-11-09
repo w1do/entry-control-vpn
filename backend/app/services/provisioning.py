@@ -206,22 +206,15 @@ async def run_provision_job(
         xray_bin, agent_bin, geoip_dat, geosite_dat = await _artifacts(settings)
 
         await _event(session_factory, job_id, progress=25, step="upload_xray", message="Загрузка Xray")
-        async with conn.start_sftp_client() as sftp:
-            await sftp.put(str(xray_bin), f"{base}/bin/xray")
-            await sftp.chmod(f"{base}/bin/xray", 0o755)
+        await ssh.put_file(conn, xray_bin, f"{base}/bin/xray", mode=0o755)
 
         await _event(session_factory, job_id, progress=30, step="upload_geodata", message="Загрузка geosite/geoip")
-        async with conn.start_sftp_client() as sftp:
-            await sftp.put(str(geoip_dat), f"{base}/etc/geoip.dat")
-            await sftp.put(str(geosite_dat), f"{base}/etc/geosite.dat")
-            await sftp.chmod(f"{base}/etc/geoip.dat", 0o644)
-            await sftp.chmod(f"{base}/etc/geosite.dat", 0o644)
+        await ssh.put_file(conn, geoip_dat, f"{base}/etc/geoip.dat", mode=0o644)
+        await ssh.put_file(conn, geosite_dat, f"{base}/etc/geosite.dat", mode=0o644)
 
         await _event(session_factory, job_id, progress=35, step="upload_agent", message="Загрузка vpn-agent")
         agent_token = new_token(32)
-        async with conn.start_sftp_client() as sftp:
-            await sftp.put(str(agent_bin), f"{base}/bin/vpn-agent")
-            await sftp.chmod(f"{base}/bin/vpn-agent", 0o755)
+        await ssh.put_file(conn, agent_bin, f"{base}/bin/vpn-agent", mode=0o755)
 
         agent_cfg = {
             "panel_url": settings.public_base_url,

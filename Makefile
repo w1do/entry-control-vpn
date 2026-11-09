@@ -37,7 +37,7 @@ ARTIFACTS_DIR ?= artifacts
 XRAY_VERSION  ?= 26.11.9
 
 .PHONY: help dev dev-ui test lint build agent agent-amd64 agent-arm64 \
-        artifacts artifacts-copy up down secret-scan e2e-node
+        artifacts artifacts-copy up down secret-scan e2e-node e2e-provisioning
 
 # =============================================================================
 help: ## Показать этот список целей
@@ -137,6 +137,9 @@ down: ## docker compose down (том panel-data сохраняется)
 # =============================================================================
 e2e-node: ## E2E: vpn-agent ↔ панель на локальном стенде (fake xray/systemd, без VPS)
 	$(PYTHON) deploy/scripts/e2e_node_stand.py
+
+e2e-provisioning: ## E2E: SSH-провижининг панелью локального fake-узла (asyncssh-эмулятор, без VPS)
+	$(PYTHON) deploy/scripts/e2e_provisioning_stand.py
 
 secret-scan: ## Проверить репозиторий на утёкшие секреты (без чтения deploy/.env)
 	@bash deploy/secret-scan.sh

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import base64
 import hashlib
-import io
 from dataclasses import dataclass
+from pathlib import Path
 
 import asyncssh
 
@@ -76,7 +77,7 @@ async def run(
     command: str,
     *,
     sudo: bool = False,
-    input_data: str | None = None,
+    input_data: str | bytes | None = None,
     timeout: float = 120,
 ) -> SSHResult:
     full = f"sudo -n {command}" if sudo else command
@@ -91,8 +92,47 @@ async def run(
     )
 
 
+async def put_bytes(
+    conn: asyncssh.SSHConnection,
+    path: str,
+    data: bytes,
+    *,
+    mode: int = 0o600,
+    sudo: bool = False,
+    timeout: float = 300,
+) -> None:
+    """Upload bytes without SFTP: stream them into "tee" over the exec channel.
+
+    This works on hardened nodes where the SFTP subsystem is disabled and keeps
+    the provisioning path independent from optional sshd features.
+    """
+    encoded = base64.b64encode(data).decode()
+    if sudo:
+        command = f"base64 -d | sudo -n tee {path} >/dev/null"
+    else:
+        command = f"base64 -d > {path}"
+    result = await run(conn, command, input_data=encoded, timeout=timeout)
+    if not result.ok:
+        raise SSHConnectionError("upload_failed", f"Не удалось записать {path}: {result.stderr[:400]}")
+    chmod_result = await run(conn, f"chmod {mode:o} {path}", sudo=sudo, timeout=30)
+    if not chmod_result.ok:
+        raise SSHConnectionError("upload_failed", f"chmod {path}: {chmod_result.stderr[:400]}")
+
+
+async def put_file(
+    conn: asyncssh.SSHConnection,
+    local_path: str | Path,
+    remote_path: str,
+    *,
+    mode: int = 0o644,
+    sudo: bool = False,
+) -> None:
+    data = Path(local_path).read_bytes()
+    await put_bytes(conn, remote_path, data, mode=mode, sudo=sudo)
+
+
 async def put_text(
-    conn: asyncssh.SSHClientConnection,
+    conn: asyncssh.SSHConnection,
     path: str,
     content: str,
     *,
@@ -100,17 +140,7 @@ async def put_text(
     sudo: bool = False,
     timeout: float = 60,
 ) -> None:
-    if sudo:
-        result = await run(conn, f"tee {path} >/dev/null", sudo=True, input_data=content, timeout=timeout)
-        if not result.ok:
-            raise SSHConnectionError("upload_failed", f"Не удалось записать {path}: {result.stderr[:400]}")
-        mode_result = await run(conn, f"chmod {mode:o} {path}", sudo=True, timeout=30)
-        if not mode_result.ok:
-            raise SSHConnectionError("upload_failed", f"chmod {path}: {mode_result.stderr[:400]}")
-        return
-    async with conn.start_sftp_client() as sftp:
-        await sftp.putfo(io.BytesIO(content.encode()), path)
-        await sftp.chmod(path, mode)
+    await put_bytes(conn, path, content.encode(), mode=mode, sudo=sudo, timeout=timeout)
 
 
 async def preflight(
