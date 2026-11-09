@@ -44,6 +44,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+Environment=XRAY_LOCATION_ASSET={base}/etc
 ExecStart={base}/bin/xray run -c {base}/etc/xray.json
 Restart=on-failure
 RestartPreventExitStatus=23
@@ -126,16 +127,21 @@ class ProvisionError(Exception):
     pass
 
 
-async def _artifacts(settings: Settings) -> tuple[Path, Path]:
+async def _artifacts(settings: Settings) -> tuple[Path, Path, Path, Path]:
     artifacts = Path(settings.artifacts_dir)
     xray = artifacts / "xray-linux-amd64"
     agent = artifacts / "vpn-agent-linux-amd64"
-    if not xray.is_file() or not agent.is_file():
+    geoip = artifacts / "geoip.dat"
+    geosite = artifacts / "geosite.dat"
+    missing = [str(path) for path in (xray, agent, geoip, geosite) if not path.is_file()]
+    if missing:
         raise ProvisionError(
             "Артефакты узла не найдены: "
-            f"{xray} и/или {agent}. Соберите vpn-agent (make agent) и положите Xray в artifacts."
+            + ", ".join(missing)
+            + ". Соберите vpn-agent (make agent), положите Xray и geodata в artifacts "
+            "(см. deploy/README или Makefile target artifacts)."
         )
-    return xray, agent
+    return xray, agent, geoip, geosite
 
 
 async def run_provision_job(
@@ -186,12 +192,19 @@ async def run_provision_job(
         if not mk.ok:
             raise ProvisionError(f"mkdir: {mk.stderr[:400]}")
 
-        xray_bin, agent_bin = await _artifacts(settings)
+        xray_bin, agent_bin, geoip_dat, geosite_dat = await _artifacts(settings)
 
         await _event(session_factory, job_id, progress=25, step="upload_xray", message="Загрузка Xray")
         async with conn.start_sftp_client() as sftp:
             await sftp.put(str(xray_bin), f"{base}/bin/xray")
             await sftp.chmod(f"{base}/bin/xray", 0o755)
+
+        await _event(session_factory, job_id, progress=30, step="upload_geodata", message="Загрузка geosite/geoip")
+        async with conn.start_sftp_client() as sftp:
+            await sftp.put(str(geoip_dat), f"{base}/etc/geoip.dat")
+            await sftp.put(str(geosite_dat), f"{base}/etc/geosite.dat")
+            await sftp.chmod(f"{base}/etc/geoip.dat", 0o644)
+            await sftp.chmod(f"{base}/etc/geosite.dat", 0o644)
 
         await _event(session_factory, job_id, progress=35, step="upload_agent", message="Загрузка vpn-agent")
         agent_token = new_token(32)
@@ -224,7 +237,11 @@ async def run_provision_job(
         await ssh.put_text(conn, f"{unit_dir}/vpn-agent.service", AGENT_UNIT.format(base=base), mode=0o644, sudo=True)
 
         await _event(session_factory, job_id, progress=65, step="validate", message="Проверка конфигурации Xray")
-        test = await ssh.run(conn, f"{base}/bin/xray run -test -c {base}/etc/xray.json", timeout=60)
+        test = await ssh.run(
+            conn,
+            f"XRAY_LOCATION_ASSET={base}/etc {base}/bin/xray run -test -c {base}/etc/xray.json",
+            timeout=60,
+        )
         if not test.ok:
             raise ProvisionError(f"xray -test failed: {test.stderr[:800]}")
 

@@ -53,8 +53,17 @@ def _looks_like_ru_domain(host: str) -> bool:
     return len(labels) >= 2 and labels[-1] in _RU_TLDS
 
 
-def _domain_suffix(host: str, suffix: str) -> bool:
-    return host == suffix or host.endswith("." + suffix)
+def _domain_rule_matches(host: str, rule: str) -> bool:
+    """Mirror Xray's domain matcher.
+
+    "example.com" matches the apex and every subdomain; ".example.com" (what a
+    wildcard "*.example.com" compiles to) matches subdomains only.  Verified
+    against Xray 26.11.9: domain:.example.com blocks sub.example.com but not
+    example.com.
+    """
+    if host == rule or host.endswith("." + rule):
+        return True
+    return rule.startswith(".") and host.endswith(rule)
 
 
 def _normalize_target(
@@ -100,11 +109,11 @@ def _site_rule_matches(
         if not value:
             continue
         if rule.match_type == "domain":
-            if _domain_suffix(host, value.lower()):
+            if _domain_rule_matches(host, value.lower()):
                 return True, missing
         elif rule.match_type == "wildcard":
             pattern = value.replace("*", "").strip().lower()
-            if pattern and _domain_suffix(host, pattern):
+            if pattern and _domain_rule_matches(host, pattern):
                 return True, missing
         elif rule.match_type == "regexp":
             try:

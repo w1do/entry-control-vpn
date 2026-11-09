@@ -114,6 +114,8 @@ def compile_domain_values(rule: SiteRuleSpec) -> list[str]:
         raise CompileError(
             f"site rule {rule.id} has unsupported match_type {rule.match_type!r}"
         )
+    if not rule.values:
+        raise CompileError(f"site rule {rule.id} has no values")
     compiled: list[str] = []
     for raw in rule.values:
         if not isinstance(raw, str) or not raw.strip():
@@ -122,11 +124,18 @@ def compile_domain_values(rule: SiteRuleSpec) -> list[str]:
         if rule.match_type == "domain":
             compiled.append("domain:" + value.lower())
         elif rule.match_type == "wildcard":
+            if "*" not in value:
+                raise CompileError(
+                    f"site rule {rule.id} wildcard {raw!r} does not contain '*'"
+                )
             stripped = value.replace("*", "").strip().lower()
-            if not stripped:
+            if not stripped or stripped == ".":
                 raise CompileError(
                     f"site rule {rule.id} wildcard {raw!r} has no domain after removing '*'"
                 )
+            # Xray domain matcher: a leading dot means "subdomains only", so
+            # "*.example.com" -> "domain:.example.com" is exactly the usual
+            # wildcard semantics; the apex stays unmatched (verified on 26.11.9).
             compiled.append("domain:" + stripped)
         elif rule.match_type == "regexp":
             try:

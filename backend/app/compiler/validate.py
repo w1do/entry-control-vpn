@@ -26,7 +26,7 @@ from .routing import (
 )
 from .types import ExitSpec, ProfileIssue, RoutingSpec, SiteRuleSpec
 
-_RU_TLDS = ("ru", "su", "xn--p1ai")
+_RU_TLDS = ("ru", "su", "рф", "xn--p1ai")
 
 
 def _issue(code: str, message: str, subject: str | None = None) -> ProfileIssue:

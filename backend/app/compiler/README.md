@@ -38,6 +38,9 @@ Entry rules, in this exact order (INTERFACES section 3):
    enabled -> `balancerTag: bal-rule-<id>`; otherwise -> `outboundTag: block`
    (the rule intentionally stays in the config so matched traffic cannot fall
    through to the default exit).
+   A wildcard value `*.example.com` therefore compiles to `domain:.example.com`; Xray's matcher treats a leading dot as
+   "subdomains only", which is exactly the usual wildcard meaning - the apex is
+   not matched (verified on 26.11.9).
 3. {"type":"field","domain":["geosite:category-ru"],"outboundTag":"direct"} - locked.
 4. {"type":"field","ip":["geoip:ru"],"outboundTag":"direct"}.
 5. Catch-all `tcp,udp` -> `balancerTag: bal-default` if enabled default exits
@@ -80,6 +83,13 @@ The generated entry and exit configs pass `xray run -test` with
 `XRAY_LOCATION_ASSET=/home/dev/vpn/.tools`; see
 `backend/tests/compiler/test_xray_integration.py` (skipped when the binary or
 geodata is absent).
+
+Field compatibility result: **no field required by docs/INTERFACES.md or
+design.md had to be removed or rewritten for Xray 26.11.9** - every section
+of design.md section 6.1 is accepted by the pinned binary and validated by
+$xray run -test$. The only field-level gap found is that Xray-core's DNS
+config has no per-server detour, so "resolve DoH through the default exit"
+cannot be expressed inside the dns section (see the limitation above).
 
 Fields explicitly checked on 26.11.9 and kept as-is:
 

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from app.compiler import validate_routing
 from helpers import http_exit, routing_spec, site_rule, vless_exit
+
+from app.compiler import validate_routing
 
 
 def _codes(issues) -> list[str]:  # noqa: ANN001 - test helper
@@ -95,7 +96,7 @@ def test_duplicate_exit_label() -> None:
 
 
 def test_invalid_exit_labels() -> None:
-    for label in ("SG-1", "with space", "-bad", "x" * 25, ""):
+    for label in ("SG-1", "with space", "Bad_Label", "x" * 25, ""):
         routing = routing_spec(
             exits=(vless_exit(1, label, "203.0.113.10"),),
             default_exit_ids=(1,),

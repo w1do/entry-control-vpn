@@ -3,14 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
-from app.compiler import (
-    CompileError,
-    EntryPeerSpec,
-    canonical_json,
-    compile_exit_config,
-    sha256_json,
-)
 from helpers import (
     PRIVATE_KEY,
     SHORT_ID,
@@ -18,6 +10,14 @@ from helpers import (
     exit_input,
     exit_node,
     reality_inbound,
+)
+
+from app.compiler import (
+    CompileError,
+    EntryPeerSpec,
+    canonical_json,
+    compile_exit_config,
+    sha256_json,
 )
 
 UUID_PEER_2 = "77777777-8888-9999-aaaa-bbbbbbbbbbbb"

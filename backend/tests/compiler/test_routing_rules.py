@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
-from app.compiler import CompileError, compile_entry_config
 from helpers import (
     entry_input,
     http_exit,
@@ -13,6 +11,8 @@ from helpers import (
     socks_exit,
     vless_exit,
 )
+
+from app.compiler import CompileError, compile_entry_config
 
 BASE_DIR = "/srv/vpn/node"
 PRIVATE_RULE = {
@@ -42,8 +42,9 @@ def test_private_and_metadata_rule_is_first() -> None:
 def test_ru_direct_rules_are_locked() -> None:
     config = _compile(routing_spec(site_rules=(site_rule(5),)))
     rules = config["routing"]["rules"]
-    assert rules[-3] == RU_DOMAIN_RULE
-    assert rules[-2] == RU_IP_RULE
+    assert rules[-4] == RU_DOMAIN_RULE
+    assert rules[-3] == RU_IP_RULE
+    assert rules[-2] == DEFAULT_RULE
     assert rules[-1] == CATCH_ALL_BLOCK
 
 
@@ -221,7 +222,8 @@ def test_wildcard_geosite_regexp_value_compilation() -> None:
     )
     config = _compile(routing_spec(site_rules=rules))
     compiled = config["routing"]["rules"]
-    assert compiled[1]["domain"] == ["domain:example.com"]
+    # "*.example.com" -> "domain:.example.com": Xray matches subdomains only
+    assert compiled[1]["domain"] == ["domain:.example.com"]
     assert compiled[2]["domain"] == ["geosite:anthropic", "geosite:openai@us"]
     assert compiled[3]["domain"] == [r"regexp:^.*\.claude\.com$"]
 

@@ -3,15 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
-from app.compiler import (
-    ClientSpec,
-    CompileError,
-    EntryNodeSpec,
-    canonical_json,
-    compile_entry_config,
-    sha256_json,
-)
 from helpers import (
     DEFAULT_DNS,
     PRIVATE_KEY,
@@ -25,6 +16,15 @@ from helpers import (
     routing_spec,
     site_rule,
     vless_exit,
+)
+
+from app.compiler import (
+    ClientSpec,
+    CompileError,
+    EntryNodeSpec,
+    canonical_json,
+    compile_entry_config,
+    sha256_json,
 )
 
 
