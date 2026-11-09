@@ -14,6 +14,12 @@ from app.core.timeutils import utcnow
 from app.models.ops import Incident, MetricsBucket
 from app.models.routing import Client, RoutingProfile
 from app.models.servers import Server
+from app.services.metrics_agg import (
+    compute_service_uptime,
+    compute_uptime,
+    compute_uptime_ranges,
+    service_uptime_seconds,
+)
 
 router = APIRouter(prefix="/api/v1/metrics", tags=["metrics"])
 prometheus_router = APIRouter(tags=["prometheus"])
@@ -70,6 +76,7 @@ async def overview(
     routing_enabled = bool(profile and profile.enabled and profile.default_exit_ids_json)
     return {
         "nodes": {"total": len(servers), "online": online, "degraded": degraded},
+        "service_uptime": await compute_service_uptime(db, now),
         "traffic_today_bytes": traffic_today,
         "active_connections": active_connections,
         "errors_last_hour": errors_total,
@@ -177,10 +184,17 @@ async def node_metrics(
     for row in per_client:
         clients[int(row.client_id or 0)]["up"] += int(row.up_bytes or 0)
         clients[int(row.client_id or 0)]["down"] += int(row.down_bytes or 0)
+    now = utcnow()
+    uptime = await compute_uptime(db, server, range_name, now=now)
+    by_range = await compute_uptime_ranges(db, server, now=now)
     return {
         "server_id": server_id,
         "status": server.status,
-        "uptime": None,
+        "uptime": {**uptime, "by_range": by_range},
+        "downtime": {
+            "total_seconds": uptime["downtime_seconds"],
+            "gaps": uptime["gaps"],
+        },
         "series": _aggregate(rows, "hour"),
         "clients": [
             {"client_id": client_id, "up_bytes": value["up"], "down_bytes": value["down"]}
@@ -268,4 +282,7 @@ async def prometheus_metrics(
     lines.append("# HELP vpn_incidents_open Open incidents")
     lines.append("# TYPE vpn_incidents_open gauge")
     lines.append(f"vpn_incidents_open {open_incidents}")
+    lines.append("# HELP vpn_uptime_seconds Panel process uptime in seconds")
+    lines.append("# TYPE vpn_uptime_seconds gauge")
+    lines.append(f"vpn_uptime_seconds {service_uptime_seconds(now)}")
     return Response("\n".join(lines) + "\n", media_type="text/plain; version=0.0.4")

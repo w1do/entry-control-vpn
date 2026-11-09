@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -62,6 +63,7 @@ async def list_exits(
 @router.post("", status_code=201)
 async def create_exit(
     payload: dict,
+    request: Request,
     auth: AuthContext = Depends(require_csrf),
     db: AsyncSession = Depends(get_session),
 ) -> dict:
@@ -102,8 +104,10 @@ async def create_exit(
             credentials["username"] = str(payload["username"])
         if payload.get("password"):
             credentials["password"] = str(payload["password"])
-    box = __import__("app.main", fromlist=["x"]).app
-    del box
+    box = request.app.state.secret_box
+    secret_enc = None
+    if credentials:
+        secret_enc = box.encrypt(json.dumps(credentials))
     exit = Exit(
         kind=kind,
         server_id=int(server_id) if server_id else None,
@@ -112,7 +116,7 @@ async def create_exit(
         endpoint_host=endpoint_host,
         endpoint_port=endpoint_port,
         protocol=protocol,
-        secret_enc=None,
+        secret_enc=secret_enc,
         expected_exit_ip=(str(payload.get("expected_exit_ip", "")).strip() or None),
         bandwidth_budget_bytes=payload.get("bandwidth_budget_bytes"),
         enabled=True,
@@ -127,6 +131,7 @@ async def create_exit(
 async def update_exit(
     exit_id: int,
     payload: dict,
+    request: Request,
     auth: AuthContext = Depends(require_csrf),
     db: AsyncSession = Depends(get_session),
 ) -> dict:
@@ -141,6 +146,19 @@ async def update_exit(
         exit.expected_exit_ip = str(payload["expected_exit_ip"]).strip() or None
     if "bandwidth_budget_bytes" in payload:
         exit.bandwidth_budget_bytes = payload["bandwidth_budget_bytes"]
+    if "username" in payload or "password" in payload:
+        box = request.app.state.secret_box
+        credentials: dict = {}
+        if exit.secret_enc:
+            try:
+                credentials = json.loads(box.decrypt(exit.secret_enc))
+            except ValueError:
+                credentials = {}
+        if "username" in payload:
+            credentials["username"] = str(payload["username"])
+        if "password" in payload:
+            credentials["password"] = str(payload["password"])
+        exit.secret_enc = box.encrypt(json.dumps(credentials)) if credentials else None
     await db.commit()
     return _exit_dict(exit)
 

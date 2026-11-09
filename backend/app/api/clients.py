@@ -39,7 +39,7 @@ async def _client_or_404(db: AsyncSession, client_id: int) -> Client:
     return client
 
 
-def _client_dict(client: Client) -> dict:
+def _client_dict(client: Client, *, last_seen_at: str | None = None) -> dict:
     return {
         "id": client.id,
         "name": client.name,
@@ -47,6 +47,8 @@ def _client_dict(client: Client) -> dict:
         "email_tag": client.email_tag,
         "enabled": client.enabled,
         "traffic_limit_bytes": client.traffic_limit_bytes,
+        "sub_token": client.sub_token,
+        "last_seen_at": last_seen_at,
         "created_at": client.created_at.isoformat() if client.created_at else None,
     }
 
@@ -65,9 +67,18 @@ async def list_clients(
     )
     for client_id, total in traffic.all():
         totals[int(client_id)] = int(total or 0)
+    last_seen: dict[int, str] = {}
+    seen_rows = await db.execute(
+        select(MetricsBucket.client_id, func.max(MetricsBucket.bucket_ts))
+        .where(MetricsBucket.client_id.is_not(None))
+        .group_by(MetricsBucket.client_id)
+    )
+    for client_id, ts in seen_rows.all():
+        if ts is not None:
+            last_seen[int(client_id)] = ts.isoformat()
     result = []
     for client in rows:
-        item = _client_dict(client)
+        item = _client_dict(client, last_seen_at=last_seen.get(client.id))
         item["traffic_bytes"] = totals.get(client.id, 0)
         result.append(item)
     return result

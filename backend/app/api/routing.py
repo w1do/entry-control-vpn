@@ -167,6 +167,7 @@ async def get_profile(
     return {
         "enabled": profile.enabled,
         "default_exit_ids": list(profile.default_exit_ids),
+        "updated_at": profile.updated_at.isoformat() if profile.updated_at else None,
         "issues": issues,
         "ready": profile.enabled and not issues,
         "exits": [
@@ -394,6 +395,7 @@ async def list_revisions(
         {
             "id": row.id,
             "created_at": row.created_at.isoformat() if row.created_at else None,
+            "applied_at": row.applied_at.isoformat() if row.applied_at else None,
             "status": row.status,
             "error": row.error,
             "hashes": row.config_hashes_json,
@@ -418,6 +420,7 @@ async def get_revision(
     return {
         "id": row.id,
         "created_at": row.created_at.isoformat() if row.created_at else None,
+        "applied_at": row.applied_at.isoformat() if row.applied_at else None,
         "status": row.status,
         "error": row.error,
         "hashes": row.config_hashes_json,

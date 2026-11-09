@@ -26,7 +26,7 @@ ACTIONS = {"reapply", "restart", "reinstall", "diagnose"}
 REALITY_DESTS = ["www.microsoft.com", "www.apple.com", "www.cloudflare.com", "www.amazon.com"]
 
 
-def _server_dict(server: Server, traffic_24h: int = 0) -> dict[str, Any]:
+def _server_dict(server: Server, traffic_24h: int = 0, uptime_24h_pct: int | None = None) -> dict[str, Any]:
     secret = server.secret
     return {
         "id": server.id,
@@ -45,6 +45,7 @@ def _server_dict(server: Server, traffic_24h: int = 0) -> dict[str, Any]:
         "degraded_reason": server.degraded_reason,
         "base_dir": server.base_dir,
         "traffic_24h": traffic_24h,
+        "uptime_24h_pct": uptime_24h_pct,
         "reality": None
         if secret is None
         else {
@@ -71,6 +72,26 @@ async def _traffic_map(db: AsyncSession, server_ids: list[int]) -> dict[int, int
     return {int(server_id): int(total or 0) for server_id, total in rows.all()}
 
 
+async def _uptime_map(db: AsyncSession, server_ids: list[int]) -> dict[int, int]:
+    if not server_ids:
+        return {}
+    rows = await db.execute(
+        select(MetricsBucket.server_id, func.count(func.distinct(MetricsBucket.bucket_ts)))
+        .where(
+            MetricsBucket.server_id.in_(server_ids),
+            MetricsBucket.client_id.is_(None),
+            MetricsBucket.resolution == "15s",
+            MetricsBucket.bucket_ts >= utcnow() - timedelta(hours=24),
+        )
+        .group_by(MetricsBucket.server_id)
+    )
+    expected = max(1, (24 * 3600) // 15)
+    return {
+        int(server_id): min(100, round(int(count or 0) / expected * 100))
+        for server_id, count in rows.all()
+    }
+
+
 @router.get("")
 async def list_servers(
     auth: AuthContext = Depends(get_auth),
@@ -80,7 +101,11 @@ async def list_servers(
         (await db.scalars(select(Server).options(selectinload(Server.secret)).order_by(Server.id))).all()
     )
     traffic = await _traffic_map(db, [server.id for server in servers])
-    return [_server_dict(server, traffic.get(server.id, 0)) for server in servers]
+    uptime = await _uptime_map(db, [server.id for server in servers])
+    return [
+        _server_dict(server, traffic.get(server.id, 0), uptime.get(server.id))
+        for server in servers
+    ]
 
 
 @router.post("/preflight")
@@ -200,7 +225,8 @@ async def get_server(
     if server is None:
         raise ApiError("server_not_found", "Сервер не найден", 404)
     traffic = await _traffic_map(db, [server.id])
-    payload = _server_dict(server, traffic.get(server.id, 0))
+    uptime = await _uptime_map(db, [server.id])
+    payload = _server_dict(server, traffic.get(server.id, 0), uptime.get(server.id))
     payload["actions"] = sorted(ACTIONS)
     return payload
 
