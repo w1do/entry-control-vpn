@@ -58,6 +58,7 @@ import {
 } from "@/lib/utils";
 
 const AUDIT_KIND_LABELS: Record<string, string> = {
+  admin_bootstrapped: "Создание администратора",
   login_succeeded: "Вход",
   login_failed: "Неудачная попытка входа",
   logout: "Выход",

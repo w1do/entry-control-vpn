@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/dialog";
 import { PageHeader } from "@/components/ui/page-header";
 import { Progress } from "@/components/ui/progress";
+import { ServerStatusBadge } from "@/components/ui/status-badge";
 import { Switch } from "@/components/ui/switch";
 import { api } from "@/lib/api";
 import { errorMessage } from "@/lib/api-error";
@@ -291,9 +292,7 @@ export function ClientDetailPage() {
                       {entryNodes.map((node) => (
                         <div key={node.id} className="flex items-center justify-between gap-2 text-sm">
                           <span>{node.name}</span>
-                          <Badge variant={node.status === "online" ? "success" : "muted"}>
-                            {node.status === "online" ? "online" : node.status}
-                          </Badge>
+                          <ServerStatusBadge status={node.status} />
                         </div>
                       ))}
                     </CardContent>

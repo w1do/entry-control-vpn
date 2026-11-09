@@ -11,7 +11,6 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import update
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api import agent as agent_api
@@ -20,6 +19,7 @@ from app.api import clients as clients_api
 from app.api import events as events_api
 from app.api import exits as exits_api
 from app.api import health, stubs
+from app.api import incidents as incidents_api
 from app.api import jobs as jobs_api
 from app.api import metrics as metrics_api
 from app.api import routing as routing_api
@@ -31,41 +31,12 @@ from app.core.config import Settings, get_settings
 from app.core.crypto import SecretBox
 from app.core.db import create_all, dispose_engine, get_session_factory, init_engine
 from app.core.logging import configure_logging, get_logger
-from app.core.timeutils import utcnow
 from app.services.auth import bootstrap_admin
 from app.services.rate_limit import LoginRateLimiter
 from app.services.runner import JobRunner
+from app.services.scheduler_setup import setup_scheduler
 
 log = get_logger("app.main")
-
-
-def _start_scheduler(app: FastAPI, settings: Settings) -> AsyncIOScheduler:
-    scheduler = AsyncIOScheduler(timezone="UTC")
-
-    async def mark_offline() -> None:
-        from datetime import timedelta
-
-        from app.models.servers import Server
-
-        try:
-            async with get_session_factory()() as db:
-                cutoff = utcnow() - timedelta(seconds=settings.heartbeat_offline_seconds)
-                await db.execute(
-                    update(Server)
-                    .where(
-                        Server.status == "online",
-                        Server.last_seen_at.is_not(None),
-                        Server.last_seen_at < cutoff,
-                    )
-                    .values(status="offline")
-                )
-                await db.commit()
-        except Exception:  # noqa: BLE001 - background job must not die silently
-            log.exception("heartbeat_monitor_failed")
-
-    scheduler.add_job(mark_offline, "interval", seconds=30, id="mark_offline", max_instances=1, coalesce=True)
-    scheduler.start()
-    return scheduler
 
 
 @asynccontextmanager
@@ -85,7 +56,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     scheduler: AsyncIOScheduler | None = None
     if settings.scheduler_enabled:
         try:
-            scheduler = _start_scheduler(app, settings)
+            scheduler = setup_scheduler(app, settings)
         except Exception:  # noqa: BLE001
             log.exception("scheduler_start_failed")
     try:
@@ -202,6 +173,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(routing_api.router)
     app.include_router(clients_api.router)
     app.include_router(events_api.router)
+    app.include_router(incidents_api.router)
     app.include_router(metrics_api.router)
     app.include_router(jobs_api.router)
     app.include_router(agent_api.router)

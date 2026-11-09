@@ -329,7 +329,7 @@ def service_uptime_seconds(now: datetime | None = None) -> int:
     """Panel process uptime in seconds (Prometheus endpoint)."""
     moment = ensure_utc(now) or utcnow()
     started = ensure_utc(SERVICE_STARTED_AT) or moment
-    return int((moment - started).total_seconds())
+    return int(max(0.0, (moment - started).total_seconds()))
 
 
 async def compute_uptime(
@@ -459,7 +459,7 @@ async def compute_service_uptime(
         coverage_pct = round(100.0 * len(present) / expected, 2)
     return {
         "process_started_at": started_at.isoformat(),
-        "process_uptime_seconds": int((moment - started_at).total_seconds()),
+        "process_uptime_seconds": int(max(0.0, (moment - started_at).total_seconds())),
         "nodes_total": total,
         "nodes_online": online,
         "nodes_online_pct": round(100.0 * online / total, 2) if total else 100.0,

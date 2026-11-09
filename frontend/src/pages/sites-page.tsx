@@ -858,7 +858,9 @@ export function SitesPage() {
                       const allowedExits = rule.allowed_exit_ids
                         .map((id) => exitById.get(id))
                         .filter((exit): exit is NonNullable<typeof exit> => Boolean(exit));
-                      const hasHealthy = allowedExits.some((exit) => exit.enabled && exit.health === "up");
+                      const hasHealthy = allowedExits.some(
+                        (exit) => exit.enabled && exit.health !== "down",
+                      );
                       return (
                         <TableRow key={rule.id}>
                           <TableCell>
@@ -890,7 +892,7 @@ export function SitesPage() {
                                     key={exit.id}
                                     className={cn(
                                       "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs",
-                                      exit.enabled && exit.health === "up"
+                                      exit.enabled && exit.health !== "down"
                                         ? "border-success/40 text-success"
                                         : "border-border text-muted-foreground",
                                     )}
@@ -905,7 +907,7 @@ export function SitesPage() {
                                     <span
                                       className={cn(
                                         "size-1.5 rounded-full",
-                                        exit.enabled && exit.health === "up" ? "bg-success" : "bg-muted-foreground",
+                                        exit.enabled && exit.health !== "down" ? "bg-success" : "bg-muted-foreground",
                                       )}
                                     />
                                     {exit.label}

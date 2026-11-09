@@ -11,8 +11,8 @@ import pytest_asyncio
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from app.api import incidents as incidents_api
 from app.core.db import create_all, dispose_engine, get_session_factory, init_engine
+from app.core.timeutils import utcnow
 from app.main import create_app
 from app.models.ops import Event, Incident, MetricsBucket
 from app.models.routing import Client, Exit, SiteRule
@@ -567,16 +567,8 @@ def _fetch_events(settings: Any, kind: str) -> list[tuple[str | None, Any]]:
 
 
 def _incidents_client(settings: Any) -> TestClient:
-    application = create_app(settings)
-    application.include_router(incidents_api.router)
-    # keep the catch-all /api/v1 stub after the real incident routes
-    catch_all = [
-        route for route in application.routes if getattr(route, "path", "") == "/api/v1/{full_path:path}"
-    ]
-    for route in catch_all:
-        application.routes.remove(route)
-        application.routes.append(route)
-    return TestClient(application)
+    # incidents router is registered by create_app (main.py integration)
+    return TestClient(create_app(settings))
 
 
 def _login(client: TestClient) -> dict[str, str]:
@@ -679,55 +671,89 @@ def test_incident_ack_requires_csrf_and_writes_audit(tmp_path) -> None:
 
 def test_node_metrics_uptime_and_downtime(tmp_path) -> None:
     settings = make_settings(tmp_path)
+    anchor = utcnow().replace(second=0, microsecond=0) - timedelta(hours=2)
 
     async def seed(session: Any) -> int:
-        server = make_server(created_at=NOW - timedelta(hours=2))
-        session.add(server)
+        server = make_server(created_at=anchor)
+        client = Client(name="c1", uuid="uuid-obs", email_tag="client-1@vpn", sub_token="tok-obs")
+        session.add_all([server, client])
         await session.flush()
-        start = floor_minute(NOW) - timedelta(minutes=120)
-        for index in range(120):
+        # 121 minutes covers a possible minute-boundary race between anchor and request
+        for index in range(121):
             if 50 <= index < 60:
                 continue
             session.add(
-                bucket(server.id, start + timedelta(minutes=index), resolution="1m", up=1, down=2)
+                bucket(
+                    server.id,
+                    anchor + timedelta(minutes=index),
+                    resolution="1m",
+                    up=1,
+                    down=2,
+                )
+            )
+        # per-client rows exist in parallel with the node totals; they must not be
+        # added to node total_bytes (no double counting)
+        for index in range(5):
+            session.add(
+                bucket(
+                    server.id,
+                    anchor + timedelta(minutes=index),
+                    resolution="1m",
+                    client_id=client.id,
+                    up=1000,
+                    down=2000,
+                )
             )
         await session.flush()
         return server.id
 
     server_id = _seed_sync(settings, seed)
     with TestClient(create_app(settings)) as client:
+        _login(client)
         response = client.get(f"/api/v1/metrics/node/{server_id}?range=24h")
         assert response.status_code == 200, response.text
         body = response.json()
-        assert body["uptime"]["uptime_pct"] == round(100 * 110 / 120, 2)
+        expected = body["uptime"]["expected_buckets"]
+        assert expected >= 120
+        assert body["uptime"]["present_buckets"] == expected - 10
+        assert body["uptime"]["uptime_pct"] == round(100 * (expected - 10) / expected, 2)
         assert body["uptime"]["by_range"]["24h"] == body["uptime"]["uptime_pct"]
         assert set(body["uptime"]["by_range"]) == {"24h", "7d", "30d"}
         assert body["downtime"]["total_seconds"] == 600
         assert len(body["downtime"]["gaps"]) == 1
         assert body["downtime"]["gaps"][0]["reason"] == "no_metrics"
-        assert body["total_bytes"] == 110 * 3
+        # 121 seeded minutes minus the 10-bucket gap = 111 server-level rows.
+        # total_bytes sums only server-level rows (as /traffic group_by=server);
+        # per-client rows are not double counted even though they carry 1000/2000 bytes.
+        assert body["total_bytes"] == 111 * 3
+        client_traffic = sum(row["up_bytes"] + row["down_bytes"] for row in body["clients"])
+        assert client_traffic == 5 * 3000
 
 
 def test_overview_service_uptime(tmp_path) -> None:
     settings = make_settings(tmp_path)
+    anchor = utcnow().replace(second=0, microsecond=0) - timedelta(minutes=60)
 
     async def seed(session: Any) -> None:
         server = make_server()
         session.add(server)
         await session.flush()
-        start = floor_minute(NOW) - timedelta(minutes=60)
         for index in range(60):
-            session.add(bucket(server.id, start + timedelta(minutes=index), resolution="1m"))
+            session.add(
+                bucket(server.id, anchor + timedelta(minutes=index), resolution="1m")
+            )
 
     _seed_sync(settings, seed)
     with TestClient(create_app(settings)) as client:
+        _login(client)
         response = client.get("/api/v1/metrics/overview")
         assert response.status_code == 200, response.text
         body = response.json()
         assert body["nodes"] == {"total": 1, "online": 1, "degraded": 0}
         service = body["service_uptime"]
         assert service["nodes_online_pct"] == 100.0
-        assert 0.0 <= service["uptime_pct"] <= 100.0
+        assert 0.0 < service["uptime_pct"] <= 100.0
+        assert service["metrics_coverage_24h_pct"] == service["uptime_pct"]
         assert service["process_uptime_seconds"] >= 0
 
 

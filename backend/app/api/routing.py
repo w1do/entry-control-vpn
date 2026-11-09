@@ -36,6 +36,12 @@ from app.services.jobs import create_job
 
 router = APIRouter(prefix="/api/v1/routing", tags=["routing"])
 
+def _reality_dest(value: str | None) -> str:
+    """Xray REALITY expects host:port in dest/target."""
+    host = (value or "www.microsoft.com").strip()
+    return host if ":" in host else f"{host}:443"
+
+
 INTERCONNECT_PORT = 18443
 
 
@@ -311,7 +317,7 @@ async def apply_routing(
                 inbound=RealityInboundSpec(
                     listen="0.0.0.0",
                     port=443,
-                    dest=secret.real_dest or "www.microsoft.com",
+                    dest=_reality_dest(secret.real_dest),
                     server_names=(secret.real_sni or "www.microsoft.com",),
                     private_key=box.decrypt(secret.reality_private_key_enc),
                     short_ids=tuple(secret.short_ids_json or ("",)),

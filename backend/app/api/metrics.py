@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, Header, Query, Response
+from fastapi import APIRouter, Depends, Header, Query, Request, Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -41,6 +41,11 @@ async def _sum_traffic(db: AsyncSession, *, since: datetime, server_id: int | No
         stmt = stmt.where(MetricsBucket.server_id == server_id)
     if client_id is not None:
         stmt = stmt.where(MetricsBucket.client_id == client_id)
+    else:
+        # server-level rows already aggregate every client (they come from
+        # the agent's node totals), so per-client rows must not be added on
+        # top of them: otherwise traffic would be counted twice.
+        stmt = stmt.where(MetricsBucket.client_id.is_(None))
     return int(await db.scalar(stmt) or 0)
 
 
@@ -234,12 +239,11 @@ async def client_metrics(
 
 @prometheus_router.get("/metrics")
 async def prometheus_metrics(
+    request: Request,
     authorization: str | None = Header(default=None),
     db: AsyncSession = Depends(get_session),
 ) -> Response:
-    from app.core.config import get_settings
-
-    settings = get_settings()
+    settings = request.app.state.settings
     if not settings.metrics_token:
         raise ApiError("metrics_disabled", "METRICS_TOKEN не задан", 404)
     expected = f"Bearer {settings.metrics_token}"

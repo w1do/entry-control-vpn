@@ -17,6 +17,13 @@ from app.models.servers import Server, ServerSecret
 from app.services import ssh
 from app.services.jobs import append_event, finish_job, start_job
 
+
+def _reality_dest(value: str | None) -> str:
+    """Xray REALITY expects host:port in dest/target."""
+    host = (value or "www.microsoft.com").strip()
+    return host if ":" in host else f"{host}:443"
+
+
 AGENT_UNIT = """[Unit]
 Description=VPN node agent
 After=network-online.target
@@ -83,7 +90,7 @@ def bootstrap_xray_config(secret: ServerSecret, base_dir: str) -> dict[str, Any]
                     "security": "reality",
                     "realitySettings": {
                         "show": False,
-                        "dest": f"{secret.real_dest}:443",
+                        "dest": _reality_dest(secret.real_dest),
                         "xver": 0,
                         "serverNames": [secret.real_sni],
                         "privateKey": "__PRIVATE_KEY__",

@@ -168,7 +168,8 @@ export function computeRoutingStatus(
   const defaultExits = (profile?.default_exit_ids ?? [])
     .map((id) => readyExits.find((exit) => exit.id === id))
     .filter((exit): exit is Exit => Boolean(exit));
-  const healthyDefaultExits = defaultExits.filter((exit) => exit.health === "up");
+  // Backend считает выход пригодным, если enabled и health != "down" (unknown тоже пригоден до первой проверки).
+  const healthyDefaultExits = defaultExits.filter((exit) => exit.health !== "down");
   const enabled = Boolean(profile?.enabled);
   const issues = (profile?.issues ?? []).map((issue) => issue.message);
   const ready =
