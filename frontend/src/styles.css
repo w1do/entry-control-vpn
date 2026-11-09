@@ -1,0 +1,146 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --radius: 0.625rem;
+  --background: oklch(0.984 0.003 247);
+  --foreground: oklch(0.21 0.032 258);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.21 0.032 258);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.21 0.032 258);
+  --primary: oklch(0.51 0.19 262);
+  --primary-foreground: oklch(0.985 0.002 247);
+  --secondary: oklch(0.958 0.012 250);
+  --secondary-foreground: oklch(0.28 0.03 258);
+  --muted: oklch(0.964 0.009 250);
+  --muted-foreground: oklch(0.52 0.022 256);
+  --accent: oklch(0.951 0.02 252);
+  --accent-foreground: oklch(0.28 0.03 258);
+  --destructive: oklch(0.577 0.215 27);
+  --destructive-foreground: oklch(0.985 0.002 247);
+  --success: oklch(0.596 0.145 158);
+  --success-foreground: oklch(0.985 0.002 247);
+  --warning: oklch(0.72 0.16 75);
+  --warning-foreground: oklch(0.24 0.03 70);
+  --border: oklch(0.912 0.012 255);
+  --input: oklch(0.9 0.012 255);
+  --ring: oklch(0.56 0.15 258);
+}
+
+.dark {
+  --background: oklch(0.165 0.021 259);
+  --foreground: oklch(0.962 0.006 250);
+  --card: oklch(0.203 0.022 259);
+  --card-foreground: oklch(0.962 0.006 250);
+  --popover: oklch(0.214 0.022 259);
+  --popover-foreground: oklch(0.962 0.006 250);
+  --primary: oklch(0.685 0.155 258);
+  --primary-foreground: oklch(0.16 0.022 259);
+  --secondary: oklch(0.262 0.022 259);
+  --secondary-foreground: oklch(0.962 0.006 250);
+  --muted: oklch(0.254 0.02 259);
+  --muted-foreground: oklch(0.72 0.02 256);
+  --accent: oklch(0.278 0.026 259);
+  --accent-foreground: oklch(0.962 0.006 250);
+  --destructive: oklch(0.63 0.2 25);
+  --destructive-foreground: oklch(0.985 0.002 247);
+  --success: oklch(0.68 0.14 158);
+  --success-foreground: oklch(0.16 0.02 160);
+  --warning: oklch(0.78 0.15 78);
+  --warning-foreground: oklch(0.2 0.03 75);
+  --border: oklch(0.305 0.022 259);
+  --input: oklch(0.32 0.022 259);
+  --ring: oklch(0.62 0.13 258);
+}
+
+@theme inline {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, "Noto Sans", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono",
+    monospace;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background-color: color-mix(in oklch, var(--primary) 25%, transparent);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: color-mix(in oklch, var(--muted-foreground) 30%, transparent);
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .scrollbar-thin {
+    scrollbar-width: thin;
+  }
+}

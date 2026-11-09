@@ -17,3 +17,5 @@ coverage/
 backend/app/static/
 agent/bin/
 *.log
+
+artifacts/

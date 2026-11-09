@@ -6,6 +6,7 @@ import pytest
 
 from app.core.db import create_all, dispose_engine, init_engine
 from app.core.security import sha256_hex
+from app.models.ops import Job
 from app.models.servers import Server
 from tests.conftest import make_settings
 
@@ -27,6 +28,8 @@ def _seed(settings, token: str = TOKEN) -> int:
                 agent_token_hash=sha256_hex(token),
             )
             db.add(server)
+            await db.flush()
+            db.add(Job(type="diagnose", server_id=server.id, status="queued", payload_json={}))
             await db.commit()
             return server.id
 
@@ -104,6 +107,36 @@ def test_agent_config_204_then_metrics(agent_client) -> None:
     )
     assert metrics.status_code == 200, metrics.text
     assert metrics.json()["ok"] is True
+
+
+def test_agent_receives_queued_command_and_reports_result(agent_client) -> None:
+    client, server_id = agent_client
+    heartbeat = client.post("/agent/v1/heartbeat", json={}, headers=_headers())
+    assert heartbeat.status_code == 200
+    commands = heartbeat.json()["commands"]
+    assert len(commands) == 1
+    assert commands[0]["type"] == "diagnose"
+    command_id = commands[0]["id"]
+
+    # Command is no longer delivered twice.
+    second = client.post("/agent/v1/heartbeat", json={}, headers=_headers())
+    assert second.json()["commands"] == []
+
+    result = client.post(
+        "/agent/v1/command-result",
+        json={"command_id": command_id, "status": "succeeded", "output": '{"xray_version":"26.11.9"}'},
+        headers=_headers(),
+    )
+    assert result.status_code == 200
+
+    login = client.post(
+        "/api/v1/auth/login",
+        json={"email": "admin@example.com", "password": "correct-horse-battery-staple"},
+    )
+    assert login.status_code == 200
+    job = client.get(f"/api/v1/jobs/{command_id}")
+    assert job.status_code == 200
+    assert job.json()["status"] == "succeeded"
 
 
 def test_agent_apply_result_failure_creates_incident(agent_client) -> None:

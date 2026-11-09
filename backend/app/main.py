@@ -17,6 +17,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.api import agent as agent_api
 from app.api import auth as auth_api
 from app.api import clients as clients_api
+from app.api import events as events_api
 from app.api import exits as exits_api
 from app.api import health, stubs
 from app.api import jobs as jobs_api
@@ -200,6 +201,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(sites_api.router)
     app.include_router(routing_api.router)
     app.include_router(clients_api.router)
+    app.include_router(events_api.router)
     app.include_router(metrics_api.router)
     app.include_router(jobs_api.router)
     app.include_router(agent_api.router)

@@ -13,7 +13,7 @@ from app.api.errors import ApiError
 from app.core.db import get_session
 from app.core.security import sha256_hex
 from app.core.timeutils import ensure_utc, utcnow
-from app.models.ops import Event, Incident, MetricsBucket
+from app.models.ops import Event, Incident, Job, MetricsBucket
 from app.models.routing import Client
 from app.models.servers import Server, ServerConfig
 from app.schemas.agent import (
@@ -83,6 +83,41 @@ async def register(
     )
 
 
+_AGENT_COMMANDS = {
+    "reapply": "reapply",
+    "restart_services": "restart_services",
+    "diagnose": "diagnose",
+    "update_agent": "update_agent",
+}
+
+
+async def _pending_commands(db: AsyncSession, server_id: int) -> list[dict[str, Any]]:
+    jobs = (
+        await db.scalars(
+            select(Job)
+            .where(
+                Job.server_id == server_id,
+                Job.status == "queued",
+                Job.type.in_(list(_AGENT_COMMANDS.keys())),
+            )
+            .order_by(Job.id)
+            .limit(10)
+        )
+    ).all()
+    commands: list[dict[str, Any]] = []
+    for job in jobs:
+        job.status = "running"
+        job.started_at = utcnow()
+        commands.append(
+            {
+                "id": str(job.id),
+                "type": _AGENT_COMMANDS[job.type],
+                "payload": job.payload_json or {},
+            }
+        )
+    return commands
+
+
 @router.post("/heartbeat", response_model=HeartbeatResponse)
 async def heartbeat(
     payload: HeartbeatRequest,
@@ -98,6 +133,7 @@ async def heartbeat(
         server.status = "online"
         server.degraded_reason = None
     await _touch(server)
+    commands = await _pending_commands(db, server.id)
     await db.commit()
     desired_revision = server.revision_id
     apply_pending = bool(
@@ -105,7 +141,7 @@ async def heartbeat(
         and payload.revision != desired_revision
         and payload.revision is not None
     )
-    return HeartbeatResponse(revision=desired_revision, apply_pending=apply_pending, commands=[])
+    return HeartbeatResponse(revision=desired_revision, apply_pending=apply_pending, commands=commands)
 
 
 @router.get("/config")
@@ -220,6 +256,12 @@ async def ingest_metrics(
         "online": online,
         "replay": payload.replay,
     }
+    if existing_server is not None and payload.replay:
+        existing_server.up_bytes = up
+        existing_server.down_bytes = down
+        existing_server.conns = accepted
+        existing_server.errors_json = errors_json
+        existing_server = existing_server  # keep for later branch skip
     if existing_server is None:
         db.add(
             MetricsBucket(
@@ -233,7 +275,7 @@ async def ingest_metrics(
                 errors_json=errors_json,
             )
         )
-    else:
+    elif not payload.replay:
         existing_server.up_bytes = (existing_server.up_bytes or 0) + up
         existing_server.down_bytes = (existing_server.down_bytes or 0) + down
         existing_server.conns = accepted
@@ -265,8 +307,12 @@ async def ingest_metrics(
                 )
             )
         else:
-            existing.up_bytes = (existing.up_bytes or 0) + item.up
-            existing.down_bytes = (existing.down_bytes or 0) + item.down
+            if payload.replay:
+                existing.up_bytes = item.up
+                existing.down_bytes = item.down
+            else:
+                existing.up_bytes = (existing.up_bytes or 0) + item.up
+                existing.down_bytes = (existing.down_bytes or 0) + item.down
             existing.conns = 1 if item.online else 0
             existing.errors_json = {"ips": item.ips}
 
@@ -306,6 +352,29 @@ async def command_result(
     server: Server = Depends(get_agent),
     db: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
+    job: Job | None = None
+    try:
+        job = await db.get(Job, int(payload.command_id))
+    except (TypeError, ValueError):
+        job = None
+    if job is not None and job.server_id == server.id:
+        if payload.status == "succeeded" or payload.status == "ok":
+            job.status = "succeeded"
+            job.progress = 100
+            job.result_json = {"output": (payload.output or "")[:4000]}
+        else:
+            job.status = "failed"
+            job.error = (payload.output or payload.status)[:2000]
+        job.finished_at = utcnow()
+        if job.type == "diagnose" and payload.status in {"succeeded", "ok"}:
+            report = {"raw": (payload.output or "")[:8000]}
+            db.add(
+                Event(
+                    kind="agent_diagnose",
+                    actor=f"server:{server.id}",
+                    payload_json={"report": report},
+                )
+            )
     db.add(
         Event(
             kind="agent_command_result",

@@ -4,7 +4,9 @@ import json
 from pathlib import Path
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.orm import selectinload
 
 from app.core.config import Settings
 from app.core.crypto import SecretBox
@@ -153,7 +155,9 @@ async def run_provision_job(
 ) -> None:
     async with session_factory() as db:
         job = await db.get(Job, job_id)
-        server = await db.get(Server, server_id)
+        server = await db.scalar(
+            select(Server).options(selectinload(Server.secret)).where(Server.id == server_id)
+        )
         if job is None or server is None:
             return
         secret = server.secret
@@ -406,11 +410,19 @@ async def execute_job(
         async with session_factory() as db:
             job = await db.get(Job, job_id)
             if job is not None:
+                revision_id = (job.payload_json or {}).get("revision_id")
+                if revision_id is not None:
+                    from app.models.routing import RoutingRevision
+
+                    revision = await db.get(RoutingRevision, int(revision_id))
+                    if revision is not None:
+                        revision.status = "applied"
+                        revision.applied_at = utcnow()
                 await finish_job(
                     db,
                     job,
                     status="succeeded",
-                    result={"revision_id": (job.payload_json or {}).get("revision_id"), "dispatched": True},
+                    result={"revision_id": revision_id, "dispatched": True},
                 )
                 await append_event(
                     db,

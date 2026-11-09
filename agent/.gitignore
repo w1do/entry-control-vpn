@@ -1,0 +1,5 @@
+# Local build outputs (mirrors the root .gitignore for agent/bin).
+/bin/
+/vpn-agent
+/vpn-agent-*
+*.test
