@@ -1,0 +1,43 @@
+name: connectivity
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/connectivity.yml
+
+jobs:
+  probe:
+    name: probe vless reality from GitHub runner
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download Xray
+        run: |
+          curl -fsSL -o xray.zip https://github.com/XTLS/Xray-core/releases/download/v26.11.9/Xray-linux-64.zip
+          unzip -q xray.zip -d xray
+          chmod +x xray/xray
+
+      - name: Client config
+        run: |
+          cat > client.json <<'JSON'
+          {
+            "log": {"loglevel": "info"},
+            "inbounds": [{"tag": "socks", "listen": "127.0.0.1", "port": 1083, "protocol": "socks", "settings": {"auth": "noauth", "udp": false}}],
+            "outbounds": [{
+              "tag": "proxy", "protocol": "vless",
+              "settings": {"vnext": [{"address": "78.141.218.136", "port": 443, "users": [{"id": "1d002b8b-6bf2-4fbb-815a-d4f616a23841", "encryption": "none", "flow": "xtls-rprx-vision"}]}]},
+              "streamSettings": {"network": "tcp", "security": "reality", "realitySettings": {"serverName": "www.apple.com", "fingerprint": "chrome", "publicKey": "r-qx-PH2nY4Gu15rHyGQX4bcTpIkymccM2kjVHA2gSo", "shortId": "8eca2bc8e3a85704", "spiderX": "/"}}
+            }]
+          }
+          JSON
+
+      - name: Probe through the VPN
+        run: |
+          ./xray/xray run -c client.json > xray.log 2>&1 &
+          sleep 4
+          IP=$(curl -sS --max-time 25 --socks5-hostname 127.0.0.1:1083 http://ifconfig.me/ip || true)
+          echo "exit ip: [$IP]"
+          curl -sS --max-time 25 --socks5-hostname 127.0.0.1:1083 -o /dev/null -w "google204=%{http_code}\n" https://www.google.com/generate_204 || true
+          tail -30 xray.log || true
+          test "$IP" = "78.141.218.136"
