@@ -17,7 +17,8 @@ func TestRenderAgentUnitHardening(t *testing.T) {
 		"PrivateTmp=yes",
 		"Restart=always",
 		"UMask=0077",
-		"ExecStart=/root/config/vpn/bin/vpn-agent serve",
+		"Environment=HOME=/root",
+		"ExecStart=/root/config/vpn/bin/vpn-agent serve --base /root/config/vpn",
 	}
 	for _, want := range required {
 		if !strings.Contains(unit, want) {

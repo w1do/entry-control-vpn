@@ -159,8 +159,11 @@ def test_provision_job_success_with_fake_ssh(tmp_path, monkeypatch) -> None:
     assert server.degraded_reason
     assert server.agent_token_hash
     assert server.base_dir == BASE
-    assert f"{BASE}/bin/xray" in files
-    assert f"{BASE}/bin/vpn-agent" in files
+    # Binaries are written next to the running file and moved into place, so a
+    # reinstall over a live system cannot fail with ETXTBSY.
+    assert f"{BASE}/bin/xray.new" in files
+    assert f"{BASE}/bin/vpn-agent.new" in files
+    assert any(f"mv -f {BASE}/bin/xray.new {BASE}/bin/xray" in cmd for cmd in conn.commands)
     assert f"{BASE}/etc/geoip.dat" in files
     assert f"{BASE}/etc/geosite.dat" in files
     assert f"{BASE}/etc/xray.json" in files

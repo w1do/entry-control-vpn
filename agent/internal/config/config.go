@@ -289,7 +289,7 @@ func derivePaths(c *Config) Paths {
 		XrayBin:       c.XrayBinary,
 		AgentBin:      filepath.Join(base, "bin", "vpn-agent"),
 		XrayConfig:    filepath.Join(base, "etc", "xray.json"),
-		XrayConfigNew: filepath.Join(base, "etc", "xray.json.new"),
+		XrayConfigNew: filepath.Join(base, "etc", "xray.new.json"),
 		XrayBackup:    filepath.Join(base, "etc", "xray.json.bak"),
 		AgentConfig:   filepath.Join(base, "etc", "agent.json"),
 		AccessLog:     filepath.Join(base, "log", "access.log"),

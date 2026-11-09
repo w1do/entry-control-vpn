@@ -206,10 +206,17 @@ async def run_provision_job(
         if not mk.ok:
             raise ProvisionError(f"mkdir: {mk.stderr[:400]}")
 
+        # Stop an existing installation before replacing binaries: writing over a
+        # running executable fails with ETXTBSY ("Text file busy").
+        await ssh.run(conn, "systemctl stop xray.service vpn-agent.service 2>/dev/null || true", sudo=True)
+
         xray_bin, agent_bin, geoip_dat, geosite_dat = await _artifacts(settings)
 
         await _event(session_factory, job_id, progress=25, step="upload_xray", message="Загрузка Xray")
-        await ssh.put_file(conn, xray_bin, f"{base}/bin/xray", mode=0o755)
+        await ssh.put_file(conn, xray_bin, f"{base}/bin/xray.new", mode=0o755)
+        replace = await ssh.run(conn, f"mv -f {base}/bin/xray.new {base}/bin/xray")
+        if not replace.ok:
+            raise ProvisionError(f"replace xray: {replace.stderr[:400]}")
 
         await _event(session_factory, job_id, progress=30, step="upload_geodata", message="Загрузка geosite/geoip")
         await ssh.put_file(conn, geoip_dat, f"{base}/etc/geoip.dat", mode=0o644)
@@ -217,7 +224,10 @@ async def run_provision_job(
 
         await _event(session_factory, job_id, progress=35, step="upload_agent", message="Загрузка vpn-agent")
         agent_token = new_token(32)
-        await ssh.put_file(conn, agent_bin, f"{base}/bin/vpn-agent", mode=0o755)
+        await ssh.put_file(conn, agent_bin, f"{base}/bin/vpn-agent.new", mode=0o755)
+        replace = await ssh.run(conn, f"mv -f {base}/bin/vpn-agent.new {base}/bin/vpn-agent")
+        if not replace.ok:
+            raise ProvisionError(f"replace vpn-agent: {replace.stderr[:400]}")
 
         agent_cfg = {
             "panel_url": settings.public_base_url,

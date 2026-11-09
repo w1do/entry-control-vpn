@@ -59,6 +59,15 @@ func (o UnitOptions) normalized() UnitOptions {
 	return o
 }
 
+// homeDirForBase derives $HOME from <home>/config/vpn (the agent contract).
+func homeDirForBase(baseDir string) string {
+	clean := filepath.Clean(baseDir)
+	if filepath.Base(clean) == "vpn" && filepath.Base(filepath.Dir(clean)) == "config" {
+		return filepath.Dir(filepath.Dir(clean))
+	}
+	return filepath.Dir(clean)
+}
+
 // RenderAgentUnit renders vpn-agent.service with the hardening required by
 // specs/node-agent/spec.md.
 func RenderAgentUnit(options UnitOptions) string {
@@ -72,7 +81,9 @@ func RenderAgentUnit(options UnitOptions) string {
 	fmt.Fprintf(&b, "\n")
 	fmt.Fprintf(&b, "[Service]\n")
 	fmt.Fprintf(&b, "Type=simple\n")
-	fmt.Fprintf(&b, "ExecStart=%s serve\n", EscapeExecArg(o.AgentBin))
+	home := homeDirForBase(o.BaseDir)
+	fmt.Fprintf(&b, "Environment=HOME=%s\n", EscapeExecArg(home))
+	fmt.Fprintf(&b, "ExecStart=%s serve --base %s\n", EscapeExecArg(o.AgentBin), EscapeExecArg(o.BaseDir))
 	fmt.Fprintf(&b, "Restart=always\n")
 	fmt.Fprintf(&b, "RestartSec=5s\n")
 	fmt.Fprintf(&b, "TimeoutStopSec=20s\n")
