@@ -212,6 +212,7 @@ SSH/REALITY-секреты. Храните его отдельно от резе
 - `deploy/scripts/acceptance.sh` — приёмочный smoke-тест **запущенной** панели
 - make e2e-node — E2E связки «реальная панель ↔ реальный vpn-agent» на локальном стенде (Xray и systemd заменены fake-скриптами, VPS не нужен): register → heartbeat → config poll → атомарное применение → apply-result → метрики-дельты → diagnose-команда → command-result. 11 проверок.
 - make e2e-provisioning — E2E SSH-провижининга: панель через реальный asyncssh разворачивает узла в sandbox (артефакты, конфиг, юниты, xray -test), затем загруженный агент регистрируется. 20 проверок.
+- make e2e-dataplane — E2E data plane без VPS: реальный Xray client→entry→exit на loopback, трафик и маршрутизация (default / site rule / RU-direct / fail-closed), 10 проверок.
   (`BASE_URL`/`ADMIN`/`PASSWORD`, опционально `METRICS_TOKEN`): healthz/openapi/metrics,
   auth+CSRF, серверы и uptime_24h_pct, events/incidents, выходы/сайты/routing
   (check + apply + ревизия), клиенты/QR/подписки в форматах sing-box/clash/v2ray,
