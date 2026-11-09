@@ -34,7 +34,7 @@ import { Switch } from "@/components/ui/switch";
 import { api } from "@/lib/api";
 import { errorMessage } from "@/lib/api-error";
 import type { ClientStats } from "@/lib/api-types";
-import { clientsQuery, clientStatsQuery, queryKeys, serversQuery } from "@/lib/queries";
+import { clientQuery, clientStatsQuery, queryKeys, serversQuery } from "@/lib/queries";
 import { useToast } from "@/lib/toast";
 import {
   formatBytes,
@@ -54,8 +54,8 @@ export function ClientDetailPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { success, error: toastError } = useToast();
-  const clients = useQuery(clientsQuery);
-  const data = clients.data?.find((candidate) => candidate.id === clientId);
+  const client = useQuery(clientQuery(clientId));
+  const data = client.data;
   const stats = useQuery(clientStatsQuery(clientId));
   const servers = useQuery(serversQuery);
   const [, setConnectOpen] = useState(false);
@@ -64,6 +64,7 @@ export function ClientDetailPage() {
 
   const invalidate = () => {
     void queryClient.invalidateQueries({ queryKey: queryKeys.clients });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.client(clientId) });
   };
 
   const toggle = useMutation({
@@ -79,7 +80,7 @@ export function ClientDetailPage() {
     mutationFn: () => api.clients.remove(clientId),
     onSuccess: () => {
       success("Клиент удалён");
-      void queryClient.invalidateQueries({ queryKey: clientsQuery.queryKey });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.clients });
       void navigate({ to: "/clients" });
     },
     onError: (mutationError) => toastError("Не удалось удалить клиента", errorMessage(mutationError)),
@@ -107,10 +108,10 @@ export function ClientDetailPage() {
       </div>
 
       <QueryState
-        isLoading={clients.isLoading}
-        isError={clients.isError}
-        error={clients.error}
-        onRetry={() => void clients.refetch()}
+        isLoading={client.isLoading}
+        isError={client.isError}
+        error={client.error}
+        onRetry={() => void client.refetch()}
         rows={4}
       >
         {data ? (

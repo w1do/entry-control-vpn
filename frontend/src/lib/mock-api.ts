@@ -1449,6 +1449,7 @@ export async function mockRequest<T>(path: string, options: RequestOptions = {})
     if (!incident) notFound("Инцидент");
     if (match[2] === "ack") {
       incident.status = "ack";
+      incident.acked_at = nowIso();
     } else {
       incident.status = "resolved";
       incident.resolved_at = nowIso();

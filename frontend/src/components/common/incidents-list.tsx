@@ -90,6 +90,9 @@ export function IncidentsList({ limit, compact = false, className, showEmpty = t
             </div>
             <p className="text-xs text-muted-foreground" title={formatDateTime(incident.created_at)}>
               {formatRelative(incident.created_at)}
+              {incident.acked_at && incident.status === "ack"
+                ? ` · подтверждён ${formatRelative(incident.acked_at)}`
+                : null}
               {incident.resolved_at ? ` · закрыт ${formatRelative(incident.resolved_at)}` : null}
             </p>
           </div>

@@ -302,8 +302,11 @@ export interface Incident {
   kind: string;
   subject?: string | null;
   status: "open" | "ack" | "resolved";
+  /** GET /incidents отдаёт details; mock-режим — details_json. */
+  details?: Record<string, unknown> | null;
   details_json?: Record<string, unknown> | null;
   created_at: string;
+  acked_at?: string | null;
   resolved_at?: string | null;
 }
 

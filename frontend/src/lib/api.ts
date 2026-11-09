@@ -288,6 +288,7 @@ export const api = {
   },
   clients: {
     list: () => apiRequest<Client[]>("/clients"),
+    get: (id: number) => apiRequest<Client>(`/clients/${id}`),
     create: (payload: ClientCreateRequest) => apiRequest<Client>("/clients", { method: "POST", body: payload }),
     update: (id: number, payload: ClientUpdateRequest) =>
       apiRequest<Client>(`/clients/${id}`, { method: "PATCH", body: payload }),

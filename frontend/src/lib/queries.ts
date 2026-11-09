@@ -91,6 +91,13 @@ export const clientsQuery = queryOptions({
   refetchInterval: 30_000,
 });
 
+export const clientQuery = (id: number) =>
+  queryOptions({
+    queryKey: queryKeys.client(id),
+    queryFn: () => api.clients.get(id),
+    refetchInterval: 30_000,
+  });
+
 export const clientStatsQuery = (id: number) =>
   queryOptions({
     queryKey: queryKeys.clientStats(id),

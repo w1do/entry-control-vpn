@@ -83,16 +83,29 @@ WSL не имеет прямого интернета, а `npm` в WSL PATH мо
 
 | Что | Состояние |
 |---|---|
-| `GET /api/v1/incidents` + ack/resolve | ещё не реализовано (stub 501, task-5); дашборд/колокольчик показывают пустое состояние с ошибкой, UI готов |
-| `GET /api/v1/clients/{id}` | нет эндпоинта — карточка клиента берёт данные из `GET /clients` (список) |
-| `PATCH /api/v1/exits/{id}` | меняет enabled/region/expected_exit_ip/bandwidth_budget_bytes/username/password; label/endpoint/protocol неизменяемы — в UI при редактировании disabled |
-| SSE `progress` | события без поля `progress` — фронт параллельно опрашивает `GET /jobs/{id}` для прогресс-бара |
+| `PATCH /api/v1/exits/{id}` | для `kind=external` меняются label/endpoint_host/endpoint_port/protocol/enabled/region/expected_exit_ip/budget/username/password; для `kind=node` меняются только enabled/region/expected_exit_ip/budget (label/endpoint/protocol backend игнорирует — в UI disabled) |
+| SSE `progress` | события без числового `progress` by design (progress хранится в Job) — фронт параллельно опрашивает `GET /jobs/{id}` для прогресс-бара; при обрыве SSE остаётся поллинг |
 | Аудит | `GET /events` отдаёт поле `payload` — нормализуется в `payload_json`; fallback `/audit` оставлен на случай смены пути |
+| `GET /clients/{id}/stats` | отдаёт `traffic: {"24h","7d","30d"}` — нормализуется в `traffic_24h/7d/30d` в api-слое |
 
-Исправлено backend'ом и учтено фронтом: `uptime_24h_pct` в `/servers`, `sub_token`/`last_seen_at`
-в `/clients`, credentials внешних выходов (шифруются; PATCH принимает username/password),
-`applied_at` в ревизиях и `updated_at` в профиле. Health-семантика выхода: пригоден, если
-`enabled && health !== "down"` (как в backend), поэтому «не проверен» не блокирует маршрутизацию.
+## Проверенные сценарии (реальный backend, mock-off)
+
+Локальный прогон (`uvicorn app.main:app` :8000 + `npm run dev` :5176 с прокси `/api`, `/healthz`, `/sub`)
+с реальными API-вызовами и headless Chrome:
+
+- вход через UI, дашборд: «Маршрутизация активна», выход по умолчанию доступен, баннера-гейта нет;
+- **инциденты**: список показывает `server_offline`/`exit_down`, колокольчик показывает счётчик;
+  «Подтвердить» → status `ack` + `acked_at` («подтверждён»), «Закрыть» → `resolved` + `resolved_at`
+  («закрыт»), счётчик колокольчика исчезает; API ack/resolve проверены и через curl (повторный ack
+  закрытого → 409 `incident_resolved`);
+- серверы: карточка показывает `created_at` и `host_fingerprint`;
+- клиенты: карточка использует `GET /clients/{id}`, QR/URL подписки/профили работают;
+- выходы: диалог удаления использует `used_by_sites`; у внешнего прокси редактируются
+  label/endpoint/порт/протокол/креды, у node — поля заблокированы;
+- сайты: бейдж «Применено · ревизия #1», проверка маршрута возвращает скомпилированное правило;
+- настройки: журнал аудита из `GET /events`, ревизии с `applied_at` и деталями, healthz ok.
+
+JS-исключений и console.error — 0; проваленных API-запросов в UI-прогоне — 0.
 
 Все страницы используют реальные пути/поля из `docs/INTERFACES.md §2.3` и ответов `backend/app/api/*`.
 

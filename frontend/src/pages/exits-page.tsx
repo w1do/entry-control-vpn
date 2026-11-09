@@ -179,9 +179,14 @@ function ExitDialog({ open, onOpenChange, exit, onSaved }: ExitDialogProps) {
           region: form.region,
           expected_exit_ip: form.expectedExitIp.trim() || undefined,
           bandwidth_budget_bytes: budget,
-          // PATCH принимает username/password для внешних выходов
+          // Для external PATCH принимает label/endpoint_host/endpoint_port/protocol и креды;
+          // для node эти поля backend игнорирует.
           ...(form.kind === "external"
             ? {
+                label: form.label.trim(),
+                endpoint_host: form.endpointHost.trim(),
+                endpoint_port: Number(form.endpointPort),
+                protocol: form.protocol,
                 username: form.username.trim() || undefined,
                 password: form.password || undefined,
               }
@@ -218,7 +223,7 @@ function ExitDialog({ open, onOpenChange, exit, onSaved }: ExitDialogProps) {
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const nextErrors: Record<string, string> = {};
-    if (!exit) {
+    if (!exit || form.kind === "external") {
       if (!form.label.trim()) nextErrors.label = "Укажите метку (используется в тегах Xray)";
       else if (!/^[a-z0-9-]{1,24}$/.test(form.label.trim())) {
         nextErrors.label = "Метка: латиница в нижнем регистре, цифры и дефис, до 24 символов";
@@ -279,9 +284,9 @@ function ExitDialog({ open, onOpenChange, exit, onSaved }: ExitDialogProps) {
           {exit ? (
             <Alert variant="info">
               <AlertDescription>
-                Через API можно изменить регион, ожидаемый exit-IP, бюджет трафика, включённость, а
-                для внешних прокси — логин/пароль. Метка, endpoint и протокол неизменяемы — удалите
-                выход и создайте заново.
+                Регион, ожидаемый exit-IP, бюджет трафика и включённость можно менять всегда. Для
+                внешних прокси также доступны метка, endpoint, протокол и логин/пароль; у node-выходов
+                эти поля неизменяемы (PATCH их игнорирует).
               </AlertDescription>
             </Alert>
           ) : null}
@@ -291,7 +296,7 @@ function ExitDialog({ open, onOpenChange, exit, onSaved }: ExitDialogProps) {
               <Input
                 id="exit-label"
                 value={form.label}
-                disabled={Boolean(exit)}
+                disabled={exit?.kind === "node"}
                 onChange={(event) => update({ label: slugify(event.target.value) })}
                 placeholder="res-us-1"
               />
@@ -350,7 +355,7 @@ function ExitDialog({ open, onOpenChange, exit, onSaved }: ExitDialogProps) {
                   <Input
                     id="exit-host"
                     value={form.endpointHost}
-                    disabled={Boolean(exit)}
+                    disabled={exit?.kind === "node"}
                     placeholder="proxy.provider.net"
                     onChange={(event) => update({ endpointHost: event.target.value, label: form.label || slugify(event.target.value) })}
                   />
@@ -360,7 +365,7 @@ function ExitDialog({ open, onOpenChange, exit, onSaved }: ExitDialogProps) {
                     id="exit-port"
                     inputMode="numeric"
                     value={form.endpointPort}
-                    disabled={Boolean(exit)}
+                    disabled={exit?.kind === "node"}
                     onChange={(event) => update({ endpointPort: event.target.value })}
                   />
                 </FormField>
@@ -369,7 +374,7 @@ function ExitDialog({ open, onOpenChange, exit, onSaved }: ExitDialogProps) {
                 <FormField label="Протокол">
                   <Select
                     value={form.protocol}
-                    disabled={Boolean(exit)}
+                    disabled={exit?.kind === "node"}
                     onValueChange={(value) => update({ protocol: value as ExitProtocol })}
                   >
                     <SelectTrigger aria-label="Протокол прокси">
