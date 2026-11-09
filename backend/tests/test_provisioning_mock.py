@@ -215,6 +215,7 @@ def test_provision_job_fails_without_artifacts(tmp_path, monkeypatch) -> None:
     settings, box, server_id, job_id = _prepare(tmp_path)
     (Path(settings.artifacts_dir) / "xray-linux-amd64").unlink()
     conn = FakeConn({})
+    files: dict[str, bytes] = {}
 
     async def fake_run(c, command, *, sudo=False, input_data=None, timeout=120):
         return ssh.SSHResult(0, HOME + "\n", "")

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 from dataclasses import dataclass
@@ -127,7 +128,7 @@ async def put_file(
     mode: int = 0o644,
     sudo: bool = False,
 ) -> None:
-    data = Path(local_path).read_bytes()
+    data = await asyncio.to_thread(Path(local_path).read_bytes)
     await put_bytes(conn, remote_path, data, mode=mode, sudo=sudo)
 
 

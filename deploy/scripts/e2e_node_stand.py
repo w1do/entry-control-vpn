@@ -24,6 +24,7 @@ import asyncio
 import http.cookiejar
 import json
 import os
+import secrets
 import shutil
 import socket
 import subprocess
@@ -39,7 +40,7 @@ BACKEND = ROOT / "backend"
 VENV_PY = ROOT / ".venv" / "bin" / "python"
 AGENT_BIN = ROOT / "artifacts" / "vpn-agent-linux-amd64"
 ADMIN = "admin@example.com"
-PASSWORD = "correct-horse-battery-staple"
+ADMIN_PASSWORD = secrets.token_urlsafe(18)
 TOKEN = "e2e-agent-token-0123456789abcdef"
 CLIENT_EMAIL = "client-1@vpn"
 
@@ -187,7 +188,7 @@ class Panel:
 
     def login(self) -> None:
         status, body, _ = self.request(
-            "POST", "/api/v1/auth/login", {"email": ADMIN, "password": PASSWORD}
+            "POST", "/api/v1/auth/login", {"email": ADMIN, "password": ADMIN_PASSWORD}
         )
         if status != 200 or not isinstance(body, dict):
             raise SystemExit(f"login failed: {status} {body}")
@@ -335,7 +336,7 @@ def main() -> int:
     env = {
         **os.environ,
         "ADMIN": ADMIN,
-        "PASSWORD": PASSWORD,
+        "PASSWORD": ADMIN_PASSWORD,
         "SECRET_KEY": "e2e-secret-key-0123456789abcdef",
         "ENCRYPTION_KEY": Fernet.generate_key().decode(),
         "DATABASE_URL": f"sqlite+aiosqlite:///{database}",
@@ -352,7 +353,7 @@ def main() -> int:
 
     settings = Settings(
         admin=ADMIN,
-        password=PASSWORD,
+        password=ADMIN_PASSWORD,
         secret_key=env["SECRET_KEY"],
         encryption_key=env["ENCRYPTION_KEY"],
         public_base_url=base_url,

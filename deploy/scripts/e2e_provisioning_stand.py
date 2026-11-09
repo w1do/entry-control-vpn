@@ -23,6 +23,7 @@ import asyncio
 import http.cookiejar
 import json
 import os
+import secrets
 import shutil
 import socket
 import subprocess
@@ -39,8 +40,8 @@ BACKEND = ROOT / "backend"
 VENV_PY = ROOT / ".venv" / "bin" / "python"
 ARTIFACTS = ROOT / "artifacts"
 ADMIN = "admin@example.com"
-PASSWORD = "correct-horse-battery-staple"
-NODE_PASSWORD = "node-ssh-password"
+ADMIN_PASSWORD = secrets.token_urlsafe(18)
+NODE_SSH_PASS = secrets.token_urlsafe(18)
 
 PASS = 0
 FAIL = 0
@@ -102,7 +103,7 @@ class Panel:
             return error.code, body
 
     def login(self) -> None:
-        status, body = self.request("POST", "/api/v1/auth/login", {"email": ADMIN, "password": PASSWORD})
+        status, body = self.request("POST", "/api/v1/auth/login", {"email": ADMIN, "password": ADMIN_PASSWORD})
         if status != 200 or not isinstance(body, dict):
             raise SystemExit(f"login failed: {status} {body}")
         self.csrf = str(body["csrf_token"])
@@ -235,7 +236,7 @@ def make_ssh_server(sandbox: Path, host_key_path: Path):
             return True
 
         def validate_password(self, username: str, password: str) -> bool:
-            return username == "root" and password == NODE_PASSWORD
+            return username == "root" and password == NODE_SSH_PASS
 
     async def start():
         return await asyncssh.create_server(
@@ -317,7 +318,7 @@ def run_stand(keep: bool) -> int:
     env = {
         **os.environ,
         "ADMIN": ADMIN,
-        "PASSWORD": PASSWORD,
+        "PASSWORD": ADMIN_PASSWORD,
         "SECRET_KEY": "provisioning-e2e-secret-0123456789",
         "ENCRYPTION_KEY": Fernet.generate_key().decode(),
         "DATABASE_URL": f"sqlite+aiosqlite:///{database}",
@@ -359,7 +360,7 @@ def run_stand(keep: bool) -> int:
                 "port": ssh_actual_port,
                 "user": "root",
                 "auth_type": "password",
-                "password": NODE_PASSWORD,
+                "password": NODE_SSH_PASS,
                 "roles": "entry",
                 "region": "SG",
             },
