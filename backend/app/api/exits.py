@@ -11,9 +11,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import AuthContext, get_auth, require_csrf
 from app.api.errors import ApiError
 from app.core.db import get_session
+from app.core.timeutils import utcnow
 from app.models.routing import Exit, SiteRule
 from app.models.servers import Server
-from app.services.jobs import create_job
+from app.services.exit_health import check_exit as probe_exit
 
 router = APIRouter(prefix="/api/v1/exits", tags=["exits"])
 
@@ -226,6 +227,15 @@ async def check_exit(
     exit = await db.get(Exit, exit_id)
     if exit is None:
         raise ApiError("exit_not_found", "Выход не найден", 404)
-    job = await create_job(db, "exit_health_check", server_id=exit.server_id, payload={"exit_id": exit.id})
+    health, delay, detail = await probe_exit(exit)
+    exit.health = health
+    exit.last_check_at = utcnow()
+    exit.last_delay_ms = delay
     await db.commit()
-    return {"job_id": job.id, "status": job.status}
+    return {
+        "exit_id": exit.id,
+        "health": health,
+        "last_delay_ms": delay,
+        "last_check_at": exit.last_check_at.isoformat() if exit.last_check_at else None,
+        "detail": detail,
+    }

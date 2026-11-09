@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import random
+import re
 from datetime import timedelta
 from typing import Any
 
@@ -190,7 +190,13 @@ async def create_server(
     db.add(server)
     await db.flush()
     private_key, public_key = generate_x25519()
-    dest = random.choice(REALITY_DESTS)
+    reality_target = str(payload.get("reality_target", "") or "").strip().lower()
+    if reality_target:
+        if not re.fullmatch(r"[a-z0-9.-]{1,253}", reality_target) or "." not in reality_target:
+            raise ApiError("invalid_reality_target", "reality_target: ожидается домен (например example.com)", 400)
+        dest = reality_target
+    else:
+        dest = REALITY_DESTS[0]
     db.add(
         ServerSecret(
             server_id=server.id,
