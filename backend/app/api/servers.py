@@ -248,11 +248,12 @@ async def server_action(
     if action not in ACTIONS:
         raise ApiError("invalid_action", "action: " + ", ".join(sorted(ACTIONS)), 400)
     job_type = {
-        "reapply": "apply",
+        "reapply": "reapply",
         "restart": "restart_services",
         "reinstall": "reinstall",
         "diagnose": "diagnose",
     }[action]
+    agent_delivered = action in {"reapply", "restart", "diagnose"}
     job = await create_job(db, job_type, server_id=server.id, payload={"action": action})
     db.add(
         Event(
@@ -262,7 +263,8 @@ async def server_action(
         )
     )
     await db.commit()
-    request.app.state.job_runner.start(job.id)
+    if not agent_delivered:
+        request.app.state.job_runner.start(job.id)
     return {"job_id": job.id, "status": job.status}
 
 

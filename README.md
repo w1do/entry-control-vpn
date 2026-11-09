@@ -192,6 +192,7 @@ SSH/REALITY-секреты. Храните его отдельно от резе
 - `deploy/secret-scan.sh` — регулярные выражения (PEM, AWS/GitHub/OpenAI/Slack-токены,
   присвоения секретных переменных) + проверка `.gitignore`. Значения в лог не выводятся.
 - `deploy/scripts/acceptance.sh` — приёмочный smoke-тест **запущенной** панели
+- make e2e-node — E2E связки «реальная панель ↔ реальный vpn-agent» на локальном стенде (Xray и systemd заменены fake-скриптами, VPS не нужен): register → heartbeat → config poll → атомарное применение → apply-result → метрики-дельты → diagnose-команда → command-result. 11 проверок.
   (`BASE_URL`/`ADMIN`/`PASSWORD`, опционально `METRICS_TOKEN`): healthz/openapi/metrics,
   auth+CSRF, серверы и uptime_24h_pct, events/incidents, выходы/сайты/routing
   (check + apply + ревизия), клиенты/QR/подписки в форматах sing-box/clash/v2ray,

@@ -14,7 +14,7 @@ from app.core.db import get_session
 from app.core.security import sha256_hex
 from app.core.timeutils import ensure_utc, utcnow
 from app.models.ops import Event, Incident, Job, MetricsBucket
-from app.models.routing import Client
+from app.models.routing import Client, RoutingRevision
 from app.models.servers import Server, ServerConfig
 from app.schemas.agent import (
     ApplyResultRequest,
@@ -204,6 +204,19 @@ async def apply_result(
                 payload_json={"revision": payload.revision, "sha256": payload.sha256},
             )
         )
+        if row is not None and row.revision_id is not None:
+            revision = await db.get(RoutingRevision, row.revision_id)
+            if revision is not None:
+                pending = await db.scalar(
+                    select(ServerConfig.id).where(
+                        ServerConfig.revision_id == row.revision_id,
+                        ServerConfig.id != row.id,
+                        (ServerConfig.result.is_(None)) | (ServerConfig.result != "applied"),
+                    ).limit(1)
+                )
+                if pending is None:
+                    revision.status = "applied"
+                    revision.applied_at = utcnow()
     else:
         server.status = "degraded"
         server.degraded_reason = (payload.error or "apply failed")[:255]
@@ -358,7 +371,7 @@ async def command_result(
     except (TypeError, ValueError):
         job = None
     if job is not None and job.server_id == server.id:
-        if payload.status == "succeeded" or payload.status == "ok":
+        if payload.status in {"succeeded", "ok", "done"}:
             job.status = "succeeded"
             job.progress = 100
             job.result_json = {"output": (payload.output or "")[:4000]}
@@ -366,7 +379,7 @@ async def command_result(
             job.status = "failed"
             job.error = (payload.output or payload.status)[:2000]
         job.finished_at = utcnow()
-        if job.type == "diagnose" and payload.status in {"succeeded", "ok"}:
+        if job.type == "diagnose" and payload.status in {"succeeded", "ok", "done"}:
             report = {"raw": (payload.output or "")[:8000]}
             db.add(
                 Event(

@@ -712,6 +712,8 @@ GitHub (пресеты) — каждому свой allowlist, если хоти
 
 ### 14.0 Автоматическая приёмка (acceptance.sh)
 
+**Локальный E2E узла (без VPS):** make e2e-node — поднимает панель на свободном порту и гоняет реальный vpn-agent через fake Xray/systemd (register → heartbeat → config poll → apply → apply-result → metrics → diagnose). Ожидаемо: e2e-node: PASS=11 FAIL=0. Требуется Go и собранный .venv.
+
 Один самодостаточный smoke-скрипт проверяет публичные и админские сценарии по HTTP и печатает
 PASS/FAIL/SKIP по шагам (секреты не выводит):
 
