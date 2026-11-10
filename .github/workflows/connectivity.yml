@@ -26,8 +26,8 @@ jobs:
             "inbounds": [{"tag": "socks", "listen": "127.0.0.1", "port": 1083, "protocol": "socks", "settings": {"auth": "noauth", "udp": false}}],
             "outbounds": [{
               "tag": "proxy", "protocol": "vless",
-              "settings": {"vnext": [{"address": "78.141.218.136", "port": 443, "users": [{"id": "1d002b8b-6bf2-4fbb-815a-d4f616a23841", "encryption": "none", "flow": "xtls-rprx-vision"}]}]},
-              "streamSettings": {"network": "tcp", "security": "reality", "realitySettings": {"serverName": "www.apple.com", "fingerprint": "chrome", "publicKey": "r-qx-PH2nY4Gu15rHyGQX4bcTpIkymccM2kjVHA2gSo", "shortId": "8eca2bc8e3a85704", "spiderX": "/"}}
+              "settings": {"vnext": [{"address": "185.245.107.19", "port": 443, "users": [{"id": "86814e36-8ce1-4ed5-b6b6-e599e3bb9c64", "encryption": "none", "flow": "xtls-rprx-vision"}]}]},
+              "streamSettings": {"network": "tcp", "security": "reality", "realitySettings": {"serverName": "example.com", "fingerprint": "chrome", "publicKey": "lNBMIFCQWKX0LFYebhC11Y4c9pcWucrr56OaxAjsXxY", "shortId": "e4c3a2f4ce939995", "spiderX": "/"}}
             }]
           }
           JSON
@@ -40,4 +40,4 @@ jobs:
           echo "exit ip: [$IP]"
           curl -sS --max-time 25 --socks5-hostname 127.0.0.1:1083 -o /dev/null -w "google204=%{http_code}\n" https://www.google.com/generate_204 || true
           tail -30 xray.log || true
-          test "$IP" = "78.141.218.136"
+          test "$IP" = "185.245.107.19"
