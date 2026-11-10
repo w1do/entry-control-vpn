@@ -35,7 +35,19 @@ if [ ! -w "$DATA_DIR" ]; then
   log error data_dir_not_writable "DATA_DIR=$DATA_DIR not writable by $(id -un) (uid=$(id -u)); fix volume ownership: chown -R 10001:10001 <volume>"
   exit 1
 fi
-mkdir -p "${ARTIFACTS_DIR:-$DATA_DIR/artifacts}"
+artifact_dir="${ARTIFACTS_DIR:-$DATA_DIR/artifacts}"
+mkdir -p "$artifact_dir"
+if [ -d "${NODE_ARTIFACTS_DIR:-/opt/node-artifacts}" ]; then
+  for artifact in xray-linux-amd64 vpn-agent-linux-amd64 geoip.dat geosite.dat; do
+    source_file="${NODE_ARTIFACTS_DIR:-/opt/node-artifacts}/$artifact"
+    target_file="$artifact_dir/$artifact"
+    if [ -s "$source_file" ] && [ ! -s "$target_file" ]; then
+      cp "$source_file" "$target_file"
+      log info artifact_seeded "seeded $artifact into $artifact_dir"
+    fi
+  done
+  chmod 0755 "$artifact_dir"/xray-linux-amd64 "$artifact_dir"/vpn-agent-linux-amd64 2>/dev/null || true
+fi
 
 attempt=0
 while true; do

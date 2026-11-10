@@ -35,7 +35,33 @@ RUN set -eux; \
     test -f dist/index.html
 
 # -----------------------------------------------------------------------------
-# Stage 2. Runtime: Python 3.12 + FastAPI + статика SPA
+# Stage 2. vpn-agent: статический бинарник (linux/amd64), нужен провижинингу.
+# -----------------------------------------------------------------------------
+FROM golang:1.23-alpine AS agent-build
+
+WORKDIR /src
+COPY agent/ /src/
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64     go build -trimpath -ldflags "-s -w" -o /out/vpn-agent-linux-amd64 ./cmd/vpn-agent
+
+# -----------------------------------------------------------------------------
+# Stage 3. Артефакты узлов: Xray-core + geodata. Кладутся в образ, entrypoint
+# заполняет ими пустой том /data/artifacts — ручной make artifacts не нужен.
+# -----------------------------------------------------------------------------
+FROM alpine:3.21 AS node-artifacts
+
+ARG XRAY_VERSION=26.11.9
+
+RUN apk add --no-cache ca-certificates curl unzip
+
+WORKDIR /out
+RUN set -eux;     curl -fL --retry 3 --retry-delay 2 -o xray.zip       "https://github.com/XTLS/Xray-core/releases/download/v${XRAY_VERSION}/Xray-linux-64.zip";     curl -fL --retry 3 --retry-delay 2 -o xray.zip.dgst       "https://github.com/XTLS/Xray-core/releases/download/v${XRAY_VERSION}/Xray-linux-64.zip.dgst";     digest="$(sed -n 's/^SHA2-256= *//p' xray.zip.dgst | head -n 1)";     [ -n "$digest" ];     printf '%s  %s\n' "$digest" xray.zip | sha256sum -c -;     unzip -q xray.zip -d xray;     install -m 0755 xray/xray /out/xray-linux-amd64;     rm -rf xray xray.zip xray.zip.dgst
+
+RUN set -eux;     base="https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download";     for f in geoip.dat geosite.dat; do       curl -fL --retry 3 --retry-delay 2 -o "/out/$f" "$base/$f";     done
+
+COPY --from=agent-build /out/vpn-agent-linux-amd64 /out/vpn-agent-linux-amd64
+
+# -----------------------------------------------------------------------------
+# Stage 4. Runtime: Python 3.12 + FastAPI + статика SPA
 # -----------------------------------------------------------------------------
 FROM python:3.12-slim AS runtime
 
@@ -48,6 +74,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/app \
     APP_ENV=production \
     DATA_DIR=/data \
+    NODE_ARTIFACTS_DIR=/opt/node-artifacts \
     DATABASE_URL=sqlite+aiosqlite:////data/app.db \
     TZ=UTC
 
@@ -71,6 +98,10 @@ COPY backend/ /app/
 # Собранный SPA. backend/app/main.py монтирует static из каталога пакета
 # (STATIC_DIR по умолчанию — app/static) и делает SPA-fallback.
 COPY --from=frontend-build /build/frontend/dist /app/app/static
+
+# Артефакты узлов (Xray, vpn-agent, geodata) уже в образе: entrypoint
+# копирует их в /data/artifacts при первом старте/пустом томе.
+COPY --from=node-artifacts /out/ /opt/node-artifacts/
 
 # Точка входа: alembic upgrade head -> uvicorn app.main:app (workers=1).
 COPY deploy/entrypoint.sh /usr/local/bin/entrypoint.sh

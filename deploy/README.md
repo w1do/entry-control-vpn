@@ -16,30 +16,22 @@
 
 ## Артефакты узлов
 
-Провижининг загружает на каждый узел четыре файла из `/data/artifacts`:
+Образ панели уже содержит всё, что нужно провижинингу: Xray 26.11.9, vpn-agent
+(linux/amd64) и geodata. Dockerfile собирает агента в стадии golang:1.23-alpine и
+скачивает Xray/geodata в отдельной стадии; entrypoint при первом старте копирует
+четыре файла в /data/artifacts (том panel-data). Ручной make artifacts для Dokploy
+не нужен.
 
-| Файл | Что это | Откуда |
-|---|---|---|
-| `xray-linux-amd64` | Xray-core 26.11.9 | XTLS/Xray-core release (`Xray-linux-64.zip`) |
-| `vpn-agent-linux-amd64` | статический `vpn-agent` | `make agent` / `go build` |
-| `geoip.dat` | geodata IP | Loyalsoldier/v2ray-rules-dat (latest) |
-| `geosite.dat` | geodata доменов | Loyalsoldier/v2ray-rules-dat (latest) |
+| Файл | Что это |
+|---|---|
+| xray-linux-amd64 | Xray-core 26.11.9 (сверяется SHA2-256 из .dgst) |
+| vpn-agent-linux-amd64 | статический vpn-agent, собран из agent/ |
+| geoip.dat / geosite.dat | Loyalsoldier/v2ray-rules-dat (latest) |
 
-Подготовка и заливка в запущенный контейнер:
-
-```bash
-make artifacts        # -> ./artifacts/{xray-linux-amd64,vpn-agent-linux-amd64,geoip.dat,geosite.dat}
-make artifacts-copy   # docker cp в /data/artifacts контейнера app + chown 10001
-```
-
-Без интернета на машине сборки: скачайте zip Xray и geodata на любой машине с сетью,
-соберите агент, положите четыре файла с этими именами в `artifacts/` и выполните
-`make artifacts-copy` (или залейте файлы на узел вручную — см. SETUP.md §8).
-
-Альтернатива named-тому — bind-mount: в `docker-compose.yml` у сервиса `app` раскомментируйте
-`- ../artifacts:/data/artifacts:ro` (локальный запуск) или смонтируйте свой каталог, например
-`- /opt/vpn-artifacts:/data/artifacts:ro`. В Dokploy каталог репозитория может пересоздаваться
-при деплое, поэтому по умолчанию используется том `panel-data`.
+Обновить версию Xray можно build-arg-ом XRAY_VERSION (по умолчанию 26.11.9).
+Для офлайн-сборки или кастомных артефактов остаётся ручной путь: make artifacts,
+затем скопировать файлы в /data/artifacts контейнера (make artifacts-copy);
+entrypoint не перезаписывает уже существующие файлы.
 
 ## Приёмка
 
