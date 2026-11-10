@@ -266,7 +266,9 @@ async def run_provision_job(
         fw = await ssh.run(
             conn,
             "if command -v ufw >/dev/null 2>&1; then ufw allow 22/tcp >/dev/null 2>&1; "
-            "ufw allow 443/tcp >/dev/null 2>&1; ufw allow 18443/tcp >/dev/null 2>&1; echo ufw; "
+            "ufw allow 443/tcp >/dev/null 2>&1; ufw allow 18443/tcp >/dev/null 2>&1; "
+        "ufw allow 2053/tcp >/dev/null 2>&1; ufw allow 2096/tcp >/dev/null 2>&1; "
+        "ufw allow 8443/tcp >/dev/null 2>&1; echo ufw; "
             "elif command -v nft >/dev/null 2>&1; then echo nft; else echo none; fi",
         )
         fw_kind = fw.stdout.strip() or "none"

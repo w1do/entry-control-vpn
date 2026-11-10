@@ -61,6 +61,40 @@ def _expected_vless_outbound(tag: str, address: str) -> dict[str, object]:
     }
 
 
+def _expected_variant_inbound(
+    tag: str,
+    port: int,
+    clients: list[dict[str, object]],
+    extra: dict[str, object],
+) -> dict[str, object]:
+    return {
+        "tag": tag,
+        "listen": "0.0.0.0",
+        "port": port,
+        "protocol": "vless",
+        "settings": {"clients": clients, "decryption": "none"},
+        "streamSettings": {
+            "network": extra.pop("network"),
+            "security": "reality",
+            "realitySettings": {
+                "show": False,
+                "dest": "www.microsoft.com:443",
+                "target": "www.microsoft.com:443",
+                "xver": 0,
+                "serverNames": ["www.microsoft.com"],
+                "privateKey": PRIVATE_KEY,
+                "shortIds": [SHORT_ID],
+            },
+            **extra,
+        },
+        "sniffing": {
+            "enabled": True,
+            "destOverride": ["http", "tls", "quic"],
+            "routeOnly": True,
+        },
+    }
+
+
 def _expected_config(base_dir: str = "/srv/vpn/node") -> dict[str, object]:
     return {
         "log": {
@@ -103,7 +137,25 @@ def _expected_config(base_dir: str = "/srv/vpn/node") -> dict[str, object]:
                     "destOverride": ["http", "tls", "quic"],
                     "routeOnly": True,
                 },
-            }
+            },
+            _expected_variant_inbound(
+                "vless-tcp", 2096, [{"id": UUID_ENTRY, "email": "client-1@vpn"}], {"network": "tcp"}
+            ),
+            _expected_variant_inbound(
+                "vless-xhttp",
+                2053,
+                [{"id": UUID_ENTRY, "email": "client-1@vpn"}],
+                {"network": "xhttp", "xhttpSettings": {"path": "/vpn-xhttp", "mode": "auto"}},
+            ),
+            _expected_variant_inbound(
+                "vless-grpc",
+                8443,
+                [{"id": UUID_ENTRY, "email": "client-1@vpn"}],
+                {
+                    "network": "grpc",
+                    "grpcSettings": {"serviceName": "vpn-grpc", "multiMode": False},
+                },
+            ),
         ],
         "outbounds": [
             {"tag": "block", "protocol": "blackhole"},

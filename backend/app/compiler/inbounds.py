@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .transports import TransportVariant
 from .types import CompileError, RealityInboundSpec
 
 SNIFFING = {
@@ -65,6 +66,59 @@ def reality_inbound(
                 "shortIds": list(inbound.short_ids),
             },
         },
+    }
+    if sniffing:
+        config["sniffing"] = dict(SNIFFING, destOverride=list(SNIFFING["destOverride"]))
+    return config
+
+
+def _reality_stream_settings(
+    inbound: RealityInboundSpec,
+    network: str,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    stream: dict[str, Any] = {
+        "network": network,
+        "security": "reality",
+        "realitySettings": {
+            "show": False,
+            # 26.11.9 accepts both keys; target is the canonical name and
+            # dest is kept because design.md section 6 shows both.
+            "dest": inbound.dest,
+            "target": inbound.dest,
+            "xver": 0,
+            "serverNames": list(inbound.server_names),
+            "privateKey": inbound.private_key,
+            "shortIds": list(inbound.short_ids),
+        },
+    }
+    if extra:
+        stream.update(extra)
+    return stream
+
+
+def transport_inbound(
+    tag: str,
+    inbound: RealityInboundSpec,
+    clients: list[dict[str, Any]],
+    variant: TransportVariant,
+    *,
+    sniffing: bool = True,
+) -> dict[str, Any]:
+    """Build an extra VLESS+REALITY inbound for a non-main transport variant."""
+    validate_reality_inbound(inbound, "entry")
+    extra: dict[str, Any] = {}
+    if variant.network == "xhttp":
+        extra["xhttpSettings"] = {"path": variant.path or "/vpn-xhttp", "mode": "auto"}
+    elif variant.network == "grpc":
+        extra["grpcSettings"] = {"serviceName": variant.service_name or "vpn-grpc", "multiMode": False}
+    config: dict[str, Any] = {
+        "tag": tag,
+        "listen": inbound.listen,
+        "port": variant.port,
+        "protocol": "vless",
+        "settings": {"clients": clients, "decryption": "none"},
+        "streamSettings": _reality_stream_settings(inbound, variant.network, extra),
     }
     if sniffing:
         config["sniffing"] = dict(SNIFFING, destOverride=list(SNIFFING["destOverride"]))

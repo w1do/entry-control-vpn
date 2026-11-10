@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from .inbounds import reality_inbound, validate_reality_inbound
+from .inbounds import reality_inbound, transport_inbound, validate_reality_inbound
 from .routing import build_plan, join_base_dir
+from .transports import EXTRA_VARIANTS
 from .types import ClientSpec, CompileError, EntryCompileInput
 
 API_TAG = "api"
@@ -57,6 +58,16 @@ def compile_entry_config(inp: EntryCompileInput) -> dict[str, Any]:
 
     plan = build_plan(routing)
     base_dir = node.base_dir
+    clients_no_flow = [{"id": client["id"], "email": client["email"]} for client in clients]
+    inbounds: list[dict[str, Any]] = [
+        reality_inbound("vless-in", node.inbound, clients, sniffing=True)
+    ]
+    for variant in EXTRA_VARIANTS:
+        inbounds.append(
+            transport_inbound(
+                f"vless-{variant.id}", node.inbound, clients_no_flow, variant
+            )
+        )
     config: dict[str, Any] = {
         "log": {
             "loglevel": "warning",
@@ -64,7 +75,7 @@ def compile_entry_config(inp: EntryCompileInput) -> dict[str, Any]:
             "error": join_base_dir(base_dir, "log", "xray-error.log"),
         },
         "dns": {"servers": _dns_servers(routing.dns_servers)},
-        "inbounds": [reality_inbound("vless-in", node.inbound, clients, sniffing=True)],
+        "inbounds": inbounds,
         "outbounds": [
             {"tag": "block", "protocol": "blackhole"},
             {"tag": "direct", "protocol": "freedom"},

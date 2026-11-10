@@ -23,7 +23,13 @@ router = APIRouter(prefix="/api/v1/servers", tags=["servers"])
 
 ROLES = {"entry", "exit", "both"}
 ACTIONS = {"reapply", "restart", "reinstall", "diagnose"}
-REALITY_DESTS = ["www.microsoft.com", "www.apple.com", "www.cloudflare.com", "www.amazon.com"]
+REALITY_DESTS = [  # first entry is the default camouflage target
+    "example.com",
+    "www.microsoft.com",
+    "www.apple.com",
+    "www.cloudflare.com",
+    "www.amazon.com",
+]
 
 
 def _server_dict(server: Server, traffic_24h: int = 0, uptime_24h_pct: int | None = None) -> dict[str, Any]:

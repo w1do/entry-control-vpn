@@ -10,12 +10,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AuthContext, get_auth, require_csrf
 from app.api.errors import ApiError
+from app.compiler.transports import variant_by_id
 from app.core.db import get_session
 from app.core.security import new_token, new_uuid
 from app.models.ops import MetricsBucket
 from app.models.routing import Client
 from app.models.servers import Server, ServerSecret
-from app.services.links import build_entry_endpoint, build_smart_profile, build_vless_url
+from app.services.links import (
+    build_connection_variants,
+    build_entry_endpoint,
+    build_smart_profile,
+    build_vless_url,
+    endpoint_for_variant,
+)
 from app.services.routing_apply import auto_apply
 
 router = APIRouter(prefix="/api/v1/clients", tags=["clients"])
@@ -206,12 +213,33 @@ async def client_link(
     }
 
 
+@router.get("/{client_id}/connection")
+async def client_connection(
+    client_id: int,
+    request: Request,
+    server_id: int | None = Query(default=None),
+    auth: AuthContext = Depends(get_auth),
+    db: AsyncSession = Depends(get_session),
+) -> dict:
+    """All transport profiles (TCP/Vision, TCP, XHTTP, gRPC) for QR rendering."""
+    client = await _client_or_404(db, client_id)
+    server, secret = await _entry_server(db, server_id)
+    base = request.app.state.settings.public_base_url.rstrip("/")
+    return {
+        "server_id": server.id,
+        "server_name": server.name,
+        "variants": build_connection_variants(server, secret, client),
+        "smart": {"subscription_url": f"{base}/sub/{client.sub_token}"},
+    }
+
+
 @router.get("/{client_id}/qr.svg")
 async def client_qr(
     client_id: int,
     request: Request,
     server_id: int | None = Query(default=None),
     mode: Literal["smart", "vless"] = Query(default="vless"),
+    variant: str = Query(default="tcp-vision"),
     auth: AuthContext = Depends(get_auth),
     db: AsyncSession = Depends(get_session),
 ) -> Response:
@@ -222,7 +250,12 @@ async def client_qr(
         base = request.app.state.settings.public_base_url.rstrip("/")
         value = f"{base}/sub/{client.sub_token}"
     else:
-        value = build_vless_url(endpoint, label=client.name)
+        selected = variant_by_id(variant)
+        if selected is None:
+            raise ApiError("unknown_variant", f"Неизвестный вариант подключения: {variant}", 400)
+        value = build_vless_url(
+            endpoint_for_variant(endpoint, selected), label=client.name, variant=selected
+        )
     qr = segno.make(value, error="m")
     buffer = io.BytesIO()
     qr.save(buffer, kind="svg", scale=6, border=2, dark="#000000", light="#ffffff")

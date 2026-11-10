@@ -448,3 +448,21 @@ export interface HealthResponse {
   db?: string;
   version?: string;
 }
+
+
+export interface ConnectionVariant {
+  id: string;
+  label: string;
+  description: string;
+  type: "tcp" | "xhttp" | "grpc";
+  port: number;
+  flow: string | null;
+  url: string;
+}
+
+export interface ClientConnection {
+  server_id: number;
+  server_name: string;
+  variants: ConnectionVariant[];
+  smart: { subscription_url: string };
+}

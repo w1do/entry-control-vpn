@@ -2,6 +2,7 @@ import { ApiError } from "./api-error";
 import type {
   AuditEvent,
   Client,
+  ClientConnection,
   ClientCreateRequest,
   ClientLinkResponse,
   ClientStats,
@@ -293,6 +294,10 @@ export const api = {
     update: (id: number, payload: ClientUpdateRequest) =>
       apiRequest<Client>(`/clients/${id}`, { method: "PATCH", body: payload }),
     remove: (id: number) => apiRequest<void>(`/clients/${id}`, { method: "DELETE" }),
+    connection: (id: number, serverId: number) =>
+      apiRequest<ClientConnection>(`/clients/${id}/connection`, {
+        query: { server_id: serverId },
+      }),
     link: (id: number, serverId: number) =>
       apiRequest<ClientLinkResponse>(`/clients/${id}/link`, { query: { server_id: serverId } }),
     profile: (id: number, mode: "smart" | "vless") =>

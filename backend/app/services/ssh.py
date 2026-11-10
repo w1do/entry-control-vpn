@@ -57,6 +57,16 @@ async def connect(
             known_hosts=None if known_host_key is None else [(host, known_host_key)],
             login_timeout=CONNECT_TIMEOUT,
             keepalive_interval=30,
+            # Some DPI middleboxes drop the large ML-KEM hybrid KEX reply,
+            # which looks like an auth/login timeout. Stay on classic curves.
+            kex_algs=[
+                "curve25519-sha256",
+                "curve25519-sha256@libssh.org",
+                "ecdh-sha2-nistp256",
+                "ecdh-sha2-nistp384",
+                "diffie-hellman-group14-sha256",
+                "diffie-hellman-group-exchange-sha256",
+            ],
             connect_timeout=CONNECT_TIMEOUT,
         )
     except (asyncssh.PermissionDenied, asyncssh.DisconnectError) as exc:
@@ -107,6 +117,22 @@ async def put_bytes(
     This works on hardened nodes where the SFTP subsystem is disabled and keeps
     the provisioning path independent from optional sshd features.
     """
+    # Large artifacts go through SFTP: a single exec-channel upload is more
+    # sensitive to flaky middleboxes, while SFTP has proper flow control.
+    if len(data) > 1_000_000:
+        try:
+            async with conn.start_sftp_client() as sftp:
+                async with sftp.open(path, "wb") as handle:
+                    await handle.write(data)
+            chmod_result = await run(conn, f"chmod {mode:o} {path}", sudo=sudo, timeout=30)
+            if not chmod_result.ok:
+                raise SSHConnectionError("upload_failed", f"chmod {path}: {chmod_result.stderr[:400]}")
+            return
+        except SSHConnectionError:
+            raise
+        except Exception:  # noqa: BLE001 - fall back to the exec upload path
+            pass
+
     encoded = base64.b64encode(data).decode()
     if sudo:
         command = f"base64 -d | sudo -n tee {path} >/dev/null"

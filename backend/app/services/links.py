@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import base64
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from urllib.parse import quote, urlencode
 
+from app.compiler.transports import MAIN_VARIANT, VARIANTS, TransportVariant
 from app.models.routing import Client
 from app.models.servers import Server, ServerSecret
 
@@ -48,23 +49,63 @@ def _format_host(host: str) -> str:
     return host
 
 
-def build_vless_url(endpoint: EntryEndpoint, *, label: str | None = None) -> str:
+def endpoint_for_variant(endpoint: EntryEndpoint, variant: TransportVariant) -> EntryEndpoint:
+    """Return a copy of the endpoint addressing one transport variant."""
+    return replace(endpoint, port=variant.port, flow=variant.flow)
+
+
+def build_vless_url(
+    endpoint: EntryEndpoint,
+    *,
+    label: str | None = None,
+    variant: TransportVariant | None = None,
+) -> str:
+    network = variant.network if variant is not None else MAIN_VARIANT.network
     query = {
         "encryption": "none",
-        "type": "tcp",
+        "type": network,
         "security": "reality",
         "sni": endpoint.server_name,
         "fp": endpoint.fingerprint,
         "pbk": endpoint.public_key,
         "sid": endpoint.short_id,
         "spx": endpoint.spider_x,
-        "flow": endpoint.flow,
     }
+    if endpoint.flow:
+        query["flow"] = endpoint.flow
+    if variant is not None and variant.network == "xhttp":
+        query["path"] = variant.path or "/vpn-xhttp"
+        query["mode"] = "auto"
+    elif variant is not None and variant.network == "grpc":
+        query["serviceName"] = variant.service_name or "vpn-grpc"
+        query["mode"] = "gun"
     fragment = quote(label or endpoint.name, safe="")
     return (
         f"vless://{endpoint.uuid}@{_format_host(endpoint.host)}:{endpoint.port}"
         f"?{urlencode(query, quote_via=quote)}#{fragment}"
     )
+
+
+def build_connection_variants(
+    server: Server, secret: ServerSecret, client: Client
+) -> list[dict[str, object]]:
+    """All supported transport profiles for one client, ready for QR rendering."""
+    base = build_entry_endpoint(server, secret, client)
+    result: list[dict[str, object]] = []
+    for variant in VARIANTS:
+        endpoint = endpoint_for_variant(base, variant)
+        result.append(
+            {
+                "id": variant.id,
+                "label": variant.label,
+                "description": variant.description,
+                "type": variant.network,
+                "port": variant.port,
+                "flow": variant.flow or None,
+                "url": build_vless_url(endpoint, label=client.name, variant=variant),
+            }
+        )
+    return result
 
 
 def _reality_outbound(endpoint: EntryEndpoint) -> dict:
