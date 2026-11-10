@@ -22,4 +22,4 @@
 ## 5. Rollout
 - [x] 5.1 pytest/ruff, frontend build
 - [x] 5.2 применить ревизию, проверить 4 транспорта с ПК
-- [ ] 5.3 commit + push, CI green
+- [x] 5.3 commit + push, CI green
